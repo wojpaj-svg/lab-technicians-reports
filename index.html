@@ -501,27 +501,28 @@
 
           day.items.sort((a,b) => a.start - b.start);
 
-          for (const it of day.items){
-            const item = document.createElement("div");
-            item.className = "item" + (it.isLate ? " late" : "");
-            const createdAtTxt = it.createdAt ? fmtDateTime(it.createdAt) : "?";
+         for (const it of day.items){
+  const item = document.createElement("div");
+  item.className = "item" + (it.isLate ? " late" : "");
+  const createdAtTxt = it.createdAt ? fmtDateTime(it.createdAt) : "?";
 
-          const lateTxt = it.isLate
-  ? `<div class="lateBadge">Added after the scheduled day</div>`
-  : "";
+  const lateTxt = it.isLate
+    ? `<div class="lateBadge">Added after the scheduled day</div>`
+    : "";
 
-item.innerHTML = `
-  <div class="titleRow">
-    <div><strong>${it.task}</strong></div>
-    <div style="font-weight:800">${it.hours.toFixed(2)} h</div>
-  </div>
-  <div class="small">${fmtDateTime(it.start)} → ${fmtDateTime(it.end)}</div>
-  <div class="small">Created by: <strong>${it.createdBy}</strong> — created at: ${createdAtTxt}</div>
-  ${lateTxt}
-`
-            `;
-            box.appendChild(item);
-          }
+  item.innerHTML = `
+    <div class="titleRow">
+      <div><strong>${it.task}</strong></div>
+      <div style="font-weight:800">${it.hours.toFixed(2)} h</div>
+    </div>
+    <div class="small">${fmtDateTime(it.start)} → ${fmtDateTime(it.end)}</div>
+    <div class="small">Created by: <strong>${it.createdBy}</strong> — created at: ${createdAtTxt}</div>
+    ${lateTxt}
+  `;
+
+  box.appendChild(item);
+}
+
 
           daysEl.appendChild(box);
         }
@@ -567,15 +568,18 @@ item.innerHTML = `
   : "";
 
 row.innerHTML = `
-  <div class="mono"><strong>${r.dateKey}</strong><br/><span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span></div>
+  <div class="mono">
+    <strong>${dmyFromYmd(r.dateKey)}</strong><br/>
+    <span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span>
+  </div>
   <div>
     <div><strong>${r.task}</strong></div>
     <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
     ${lateTxt}
   </div>
   <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
+`;
 
-        `;
         box.appendChild(row);
       }
 
