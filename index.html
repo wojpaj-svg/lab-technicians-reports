@@ -272,21 +272,40 @@ function splitWorkHours(start, end){
         if (tech === "__ALL__"){
           lastMode = "all";
 
-          const hoursByTech = new Map(TECHNICIANS.map(t => [t, 0]));
+          const MAX_HOURS_PER_DAY = 8;
 
-          for (const b of rows){
-            const t = b.technician;
-            if (!hoursByTech.has(t)) hoursByTech.set(t, 0);
+const hoursByTech = new Map(TECHNICIANS.map(t => [t, 0]));
+const usedByTechDay = new Map(); // tech -> Map(dateKey -> usedHours)
 
-            const s = b.start?.toDate?.() ? b.start.toDate() : null;
-            const e = b.end?.toDate?.() ? b.end.toDate() : null;
-            if (!s || !e) continue;
+for (const b of rows){
+  const t = b.technician;
+  if (!t) continue;
 
-            const parts = splitWorkHours(s, e);
+  if (!hoursByTech.has(t)) hoursByTech.set(t, 0);
+  if (!usedByTechDay.has(t)) usedByTechDay.set(t, new Map());
 
-            const sum = parts.reduce((acc,p)=>acc+p.hours,0);
-            hoursByTech.set(t, (hoursByTech.get(t) || 0) + sum);
-          }
+  const s = b.start?.toDate?.() ? b.start.toDate() : null;
+  const e = b.end?.toDate?.() ? b.end.toDate() : null;
+  if (!s || !e) continue;
+
+  const parts = splitWorkHours(s, e); // teraz BEZ capa
+  const usedMap = usedByTechDay.get(t);
+
+  let added = 0;
+
+  for (const p of parts){
+    const used = usedMap.get(p.dateKey) || 0;
+    const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+    const counted = Math.min(p.hours, remaining);
+    if (counted <= 0) continue;
+
+    usedMap.set(p.dateKey, used + counted);
+    added += counted;
+  }
+
+  hoursByTech.set(t, (hoursByTech.get(t) || 0) + added);
+}
+
 
           const summary = Array.from(hoursByTech.entries())
             .map(([t,h]) => ({ tech: t, hours: h }))
@@ -313,6 +332,10 @@ function splitWorkHours(start, end){
         // grupowanie per dzień (wg start->end liczone w oknie pracy)
         const dayMap = new Map(); // dateKey -> {hours, items:[]}
 
+        const MAX_HOURS_PER_DAY = 8;
+const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
+
+
         for (const b of rows){
           const s = b.start?.toDate?.() ? b.start.toDate() : null;
           const e = b.end?.toDate?.() ? b.end.toDate() : null;
@@ -334,23 +357,35 @@ function splitWorkHours(start, end){
           // jeżeli coś jest całkiem poza godzinami pracy => parts puste => wtedy 0h i nie pokazujemy
           if (!parts.length) continue;
 
-          for (const p of parts){
-            if (!dayMap.has(p.dateKey)){
-              dayMap.set(p.dateKey, { hours: 0, items: [] });
-            }
-            const day = dayMap.get(p.dateKey);
-            day.hours += p.hours;
-            day.items.push({
-              task: b.task || "assignment",
-              start: s,
-              end: e,
-              hours: p.hours,
-              createdBy,
-              createdAt,
-              isLate
-            });
-          }
-        }
+         for (const p of parts){
+  const used = dayUsed.get(p.dateKey) || 0;
+  const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+  const counted = Math.min(p.hours, remaining);
+
+  // jeśli dzienny limit już wykorzystany – nie dopisujemy dalej
+  if (counted <= 0) continue;
+
+  dayUsed.set(p.dateKey, used + counted);
+
+  if (!dayMap.has(p.dateKey)){
+    dayMap.set(p.dateKey, { hours: 0, items: [] });
+  }
+  const day = dayMap.get(p.dateKey);
+
+  day.hours += counted;
+
+  day.items.push({
+    task: b.task || "assignment",
+    start: s,
+    end: e,
+    hours: counted,              // <-- UWAGA: zapisujemy policzoną część (po capie)
+    createdBy,
+    createdAt,
+    isLate
+  });
+}
+
+        
 
         // sort dni rosnąco
         const dayKeys = Array.from(dayMap.keys()).sort();
