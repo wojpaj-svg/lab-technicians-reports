@@ -103,57 +103,105 @@ const db = getFirestore(app);
     fromEl.value = first.toISOString().slice(0,10);
     toEl.value = last.toISOString().slice(0,10);
 
-    genBtn.addEventListener("click", async () => {
-      msgEl.textContent = "Loading…";
-      outEl.style.display = "none";
-      csvBtn.disabled = true;
-      printBtn.disabled = true;
-
-      const tech = techEl.value;
-      const from = new Date(fromEl.value + "T00:00:00");
-      const to = new Date(toEl.value + "T23:59:59");
-
-      // na razie tylko test pobierania
-     try {
-  const q = query(
-    bookingsCol,
-    where("technician", "==", tech),
-    where("start", ">=", Timestamp.fromDate(from)),
-    where("start", "<=", Timestamp.fromDate(to)),
-    orderBy("start")
-  );
-
-  const snap = await getDocs(q);
-  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-  outEl.style.display = "block";
+genBtn.addEventListener("click", async () => {
+  msgEl.textContent = "Loading…";
+  outEl.style.display = "none";
   daysEl.innerHTML = "";
-  csvBtn.disabled = false;
-  printBtn.disabled = false;
+  totalEl.textContent = "";
+  csvBtn.disabled = true;
+  printBtn.disabled = true;
 
-  let totalHours = 0;
+  try {
+    const tech = techEl.value;
 
-  rows.forEach(b => {
-    const s = b.start.toDate();
-    const e = b.end.toDate();
-    const hours = (e - s) / (1000 * 60 * 60);
-    totalHours += hours;
+    // zakres inclusive: od 00:00 do 23:59:59
+    const from = new Date(fromEl.value + "T00:00:00");
+    const to = new Date(toEl.value + "T23:59:59");
 
-    const item = document.createElement("div");
-    item.style.padding = "8px 10px";
-    item.style.marginTop = "6px";
-    item.style.borderRadius = "10px";
-    item.style.background = "#eef3ff";
-    item.innerHTML = `
-      <div><strong>${b.task || "assignment"}</strong></div>
-      <div style="font-size:12px;color:#6b7280">${s.toLocaleString()} → ${e.toLocaleString()} (${hours.toFixed(2)} h)</div>
-      <div style="font-size:12px;color:#6b7280">Created by: ${b.createdBy || "?"}</div>
-    `;
-    daysEl.appendChild(item);
-  });
+    const q = query(
+      bookingsCol,
+      where("technician", "==", tech),
+      where("start", ">=", Timestamp.fromDate(from)),
+      where("start", "<=", Timestamp.fromDate(to)),
+      orderBy("start")
+    );
 
+    const snap = await getDocs(q);
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // render
+    outEl.style.display = "block";
+    csvBtn.disabled = false;
+    printBtn.disabled = false;
+
+    let totalHours = 0;
+
+    rows.forEach(b => {
+      const s = b.start.toDate();
+      const e = b.end.toDate();
+      const hours = (e - s) / (1000 * 60 * 60);
+      totalHours += hours;
+
+      const item = document.createElement("div");
+      item.style.padding = "8px 10px";
+      item.style.marginTop = "6px";
+      item.style.borderRadius = "10px";
+      item.style.background = "#eef3ff";
+      item.innerHTML = `
+        <div><strong>${b.task || "assignment"}</strong></div>
+        <div style="font-size:12px;color:#6b7280">
+          ${s.toLocaleString()} → ${e.toLocaleString()} (${hours.toFixed(2)} h)
+        </div>
+        <div style="font-size:12px;color:#6b7280">
+          Created by: ${b.createdBy || "?"}
+          ${b.createdAt ? ` | createdAt: ${b.createdAt.toDate().toLocaleString()}` : ""}
+        </div>
+      `;
+      daysEl.appendChild(item);
+    });
+
+    totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
+    msgEl.textContent = `Loaded: ${rows.length} records.`;
+  } catch (err) {
+    console.error(err);
+    msgEl.textContent = `ERROR: ${err?.message || err}`;
+  }
+});
+
+
+
+
+   
   totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
   msgEl.textContent = `Loaded: ${rows.length} records.`;
+
+rows.forEach(b => {
+  const s = b.start.toDate();
+  const e = b.end.toDate();
+  const hours = (e - s) / (1000 * 60 * 60);
+
+  const item = document.createElement("div");
+  item.style.padding = "8px 10px";
+  item.style.marginTop = "6px";
+  item.style.borderRadius = "10px";
+  item.style.background = "#eef3ff";
+
+  item.innerHTML = `
+    <div><strong>${(s.toLocaleDateString())}</strong> — ${b.task || "assignment"}</div>
+    <div style="font-size:12px;color:#6b7280">
+      ${s.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}
+      → ${e.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"})}
+      (${hours.toFixed(2)} h) | ${b.technician}
+    </div>
+    <div style="font-size:12px;color:#6b7280">
+      Created by: ${b.createdBy || "?"}
+      ${b.createdAt ? `| createdAt: ${b.createdAt.toDate().toLocaleString()}` : ""}
+    </div>
+  `;
+  daysEl.appendChild(item);
+});
+
+      
 } catch (err) {
   console.error(err);
   msgEl.textContent = `ERROR: ${err?.message || err}`;
