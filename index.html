@@ -1,3 +1,4 @@
+ 
 <!doctype html>
 <html lang="pl">
 <head>
@@ -116,8 +117,40 @@
         orderBy("start")
       );
 
-      const snap = await getDocs(q);
-      msgEl.textContent = `Loaded: ${snap.size} records (next step: calculations + red/black rule + print/csv).`;
+     const snap = await getDocs(q);
+const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+// pokaż wynik panelu
+outEl.style.display = "block";
+daysEl.innerHTML = "";
+csvBtn.disabled = false;
+printBtn.disabled = false;
+
+// proste wyliczenie godzin + lista
+let totalHours = 0;
+
+rows.forEach(b => {
+  const s = b.start.toDate();
+  const e = b.end.toDate();
+  const hours = (e - s) / (1000 * 60 * 60);
+  totalHours += hours;
+
+  const item = document.createElement("div");
+  item.style.padding = "8px 10px";
+  item.style.marginTop = "6px";
+  item.style.borderRadius = "10px";
+  item.style.background = "#eef3ff";
+  item.innerHTML = `
+    <div><strong>${b.task || "assignment"}</strong></div>
+    <div style="font-size:12px;color:#6b7280">${s.toLocaleString()} → ${e.toLocaleString()} (${hours.toFixed(2)} h)</div>
+    <div style="font-size:12px;color:#6b7280">Created by: ${b.createdBy || "?"}</div>
+  `;
+  daysEl.appendChild(item);
+});
+
+totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
+msgEl.textContent = `Loaded: ${rows.length} records.`;
+
     });
   </script>
 </body>
