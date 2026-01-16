@@ -6,36 +6,54 @@
   <title>Technician report</title>
   <style>
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;margin:0;padding:18px;color:#111827}
-    .card{max-width:980px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px 14px 18px}
+    .card{max-width:1050px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px 14px 18px}
     h1{font-size:18px;margin:0 0 10px}
 
-    /* poprawione odstępy i szerokości (żeby daty nie nachodziły) */
-    .row{display:grid;grid-template-columns: 1fr 180px 180px auto;gap:14px;align-items:end}
-    @media (max-width: 760px){
+    /* FIX: brak nachodzenia pól */
+    .row{
+      display:grid;
+      grid-template-columns: minmax(220px,1fr) minmax(180px,240px) minmax(180px,240px) auto;
+      gap:14px;
+      align-items:end
+    }
+    @media (max-width: 860px){
       .row{grid-template-columns: 1fr; gap:10px}
+      .toolbar{justify-content:flex-start}
     }
 
     label{font-size:12px;color:#6b7280;display:block;margin-bottom:4px}
-    select,input{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;background:#fff}
-    input[type="date"]{padding:7px 10px}
-
+    select,input{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;background:#fff;box-sizing:border-box}
     button{padding:9px 14px;border-radius:999px;border:0;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer}
-    button:disabled{opacity:.55;cursor:not-allowed}
-
+    button:disabled{opacity:.5;cursor:not-allowed}
     .muted{color:#6b7280;font-size:12px;margin-top:10px}
     .result{margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px}
-    .total{font-weight:700}
-    .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+    .total{font-weight:800;font-size:14px;margin-bottom:8px}
+    .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
     .btn2{background:#e5e7eb;color:#111827}
 
-    .item{padding:10px 12px;margin-top:8px;border-radius:10px;background:#eef3ff}
-    .small{font-size:12px;color:#6b7280}
-    .late{color:#b91c1c !important;font-weight:700}
-    .summaryRow{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;margin-top:8px;border-radius:10px;background:#f3f4f6}
-    .mono{font-variant-numeric: tabular-nums}
+    .item{
+      padding:10px 12px;margin-top:8px;border-radius:12px;
+      background:#eef3ff;border:1px solid #dbe5ff
+    }
+    .item.late{
+      background:#ffecec;border-color:#ffb4b4
+    }
+    .titleRow{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+    .small{font-size:12px;color:#6b7280;line-height:1.35}
+    .dayBox{
+      margin-top:10px;padding:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fff
+    }
+    .dayHeader{font-weight:800;font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between}
+    .divider{height:1px;background:#eef2f7;margin:8px 0}
+    .sumRow{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:10px 12px;border-radius:12px;background:#f3f4f6;margin-top:8px
+    }
+    .sumRow strong{font-size:13px}
+    .sumRow span{font-variant-numeric:tabular-nums;font-weight:800}
+    .note{margin-top:8px;font-size:12px;color:#6b7280}
   </style>
 </head>
-
 <body>
   <div class="card">
     <h1>Technician report</h1>
@@ -45,11 +63,12 @@
         <label>Technician</label>
         <select id="tech">
           <option value="__ALL__">All technicians</option>
-          <option value="Sasi">Sasi</option>
-          <option value="Viviana">Viviana</option>
-          <option value="Lara">Lara</option>
-          <option value="Klara">Klara</option>
-          <option value="Simon">Simon</option>
+          <option>Sasi</option>
+          <option>Viviana</option>
+          <option>Lara</option>
+          <option>Klara</option>
+          <option>Simon</option>
+          <option>Stefanija</option>
         </select>
       </div>
       <div>
@@ -75,6 +94,7 @@
     <div class="result" id="out" style="display:none">
       <div class="total" id="total"></div>
       <div id="days"></div>
+      <div class="note">Work hours rule: only 08:00–16:00 counted (max 8h/day). Nights are not counted.</div>
     </div>
   </div>
 
@@ -83,6 +103,7 @@
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
     import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
+    // === FIREBASE CONFIG (TEN SAM CO W KALENDARZU) ===
     const firebaseConfig = {
       apiKey: "AIzaSyBz9WjF4aUhrCujzpzn4DHGX1MW--sV7iQ",
       authDomain: "lab-technicians-booking.firebaseapp.com",
@@ -93,9 +114,11 @@
       measurementId: "G-ZF5Z2GLBK7"
     };
 
+    const TECHNICIANS = ["Sasi","Viviana","Lara","Klara","Simon","Stefanija"];
+
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    await signInAnonymously(auth);
+    signInAnonymously(auth).catch(console.error);
 
     const db = getFirestore(app);
     const bookingsCol = collection(db, "bookings");
@@ -111,225 +134,374 @@
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
 
-    let lastMode = "single"; // "single" | "all"
-    let lastRows = [];
-    let lastSummary = [];
-
-    // default: current month
+    // domyślnie: bieżący miesiąc
     const now = new Date();
     const first = new Date(now.getFullYear(), now.getMonth(), 1);
     const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     fromEl.value = first.toISOString().slice(0,10);
     toEl.value = last.toISOString().slice(0,10);
 
-    function hoursBetween(a, b){
-      return (b - a) / (1000 * 60 * 60);
+    // ---------- helpers ----------
+    function pad2(n){ return String(n).padStart(2,"0"); }
+    function ymd(d){
+      return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+    }
+    function sameDay(a,b){
+      return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+    }
+    function startOfDay(d){
+      const x = new Date(d); x.setHours(0,0,0,0); return x;
+    }
+    function addDays(d, n){
+      const x = new Date(d); x.setDate(x.getDate()+n); return x;
+    }
+    function minDate(a,b){ return a < b ? a : b; }
+    function maxDate(a,b){ return a > b ? a : b; }
+
+    // Liczy godziny tylko w oknie pracy dla danego dnia (08:00-16:00) i rozbija zakres na dni
+    function splitWorkHours(start, end, workStartHour=8, workEndHour=16){
+      const out = []; // [{dateKey, hours}]
+      if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
+
+      let d = startOfDay(start);
+      const endDay = startOfDay(end);
+
+      while (d <= endDay){
+        const dayStart = new Date(d); dayStart.setHours(workStartHour,0,0,0);
+        const dayEnd   = new Date(d); dayEnd.setHours(workEndHour,0,0,0);
+
+        const segStart = maxDate(start, dayStart);
+        const segEnd   = minDate(end, dayEnd);
+
+        let hours = 0;
+        if (segEnd > segStart){
+          hours = (segEnd - segStart) / (1000*60*60);
+          // safety cap
+          if (hours > (workEndHour-workStartHour)) hours = (workEndHour-workStartHour);
+        }
+
+        if (hours > 0){
+          out.push({ dateKey: ymd(d), hours });
+        }
+
+        d = addDays(d, 1);
+      }
+      return out;
     }
 
-    function toJsDateMaybe(ts){
-      if (!ts) return null;
-      if (ts instanceof Date) return ts;
-      if (typeof ts?.toDate === "function") return ts.toDate(); // Firestore Timestamp
-      return null;
+    function fmtDateTime(d){
+      return d.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
     }
 
-    // porównanie "czy utworzone po dniu startu" (ignorujemy godzinę)
-    function isCreatedLate(createdAt, startDate){
-      if (!createdAt || !startDate) return false;
-      const c = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate());
-      const s = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-      return c.getTime() > s.getTime();
+    function downloadCSV(filename, rows){
+      const esc = (v) => {
+        const s = String(v ?? "");
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+        return s;
+      };
+      const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+      const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     }
 
+    function openPrint(html){
+      const w = window.open("", "_blank");
+      if(!w) return;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      w.print();
+    }
+
+    // cache ostatnie dane do CSV/Print
+    let lastMode = "single"; // "single" | "all"
+    let lastRows = [];       // raw bookings rows
+    let lastAllSummary = []; // [{tech, hours}]
+    let lastFrom = null;
+    let lastTo = null;
+    let lastTech = null;
+
+    // ---------- main ----------
     genBtn.addEventListener("click", async () => {
+      msgEl.textContent = "Loading…";
+      outEl.style.display = "none";
+      csvBtn.disabled = true;
+      printBtn.disabled = true;
+      daysEl.innerHTML = "";
+      totalEl.textContent = "";
+
+      const tech = techEl.value;
+      const from = new Date(fromEl.value + "T00:00:00");
+      const to = new Date(toEl.value + "T23:59:59");
+
+      lastFrom = from;
+      lastTo = to;
+      lastTech = tech;
+
       try {
-        msgEl.textContent = "Loading…";
-        outEl.style.display = "none";
-        daysEl.innerHTML = "";
-        totalEl.textContent = "";
-        csvBtn.disabled = true;
-        printBtn.disabled = true;
-
-        const modeTech = techEl.value;
-        const from = new Date(fromEl.value + "T00:00:00");
-        const to = new Date(toEl.value + "T23:59:59");
-
-        if (modeTech === "__ALL__") {
-          // ALL: jeden query po zakresie dat (bez technician filter) — nie powinno wymagać composite index
-          const qAll = query(
+        // Query:
+        // - single tech: technician== + start range + orderBy start
+        // - all techs: only start range + orderBy start
+        let q;
+        if (tech === "__ALL__"){
+          q = query(
             bookingsCol,
             where("start", ">=", Timestamp.fromDate(from)),
             where("start", "<=", Timestamp.fromDate(to)),
             orderBy("start")
           );
-
-          const snap = await getDocs(qAll);
-          const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-          // sum hours per technician
-          const map = new Map();
-          rows.forEach(b => {
-            const s = b.start.toDate();
-            const e = b.end.toDate();
-            const h = hoursBetween(s, e);
-            const tech = b.technician || "(unknown)";
-            map.set(tech, (map.get(tech) || 0) + h);
-          });
-
-          const summary = Array.from(map.entries())
-            .map(([tech, hours]) => ({ tech, hours }))
-            .sort((a,b) => a.tech.localeCompare(b.tech));
-
-          lastMode = "all";
-          lastSummary = summary;
-          lastRows = rows;
-
-          outEl.style.display = "block";
-          totalEl.textContent = `All technicians — total records: ${rows.length}`;
-          daysEl.innerHTML = "";
-
-          if (!summary.length) {
-            daysEl.innerHTML = '<div class="muted">No records in this range.</div>';
-            msgEl.textContent = "Loaded: 0 records.";
-          } else {
-            summary.forEach(s => {
-              const row = document.createElement("div");
-              row.className = "summaryRow";
-              row.innerHTML = `<div><strong>${s.tech}</strong></div><div class="mono">${s.hours.toFixed(2)} h</div>`;
-              daysEl.appendChild(row);
-            });
-            msgEl.textContent = `Loaded: ${rows.length} records.`;
-          }
-
-          csvBtn.disabled = false;
-          printBtn.disabled = false;
-          return;
+        } else {
+          q = query(
+            bookingsCol,
+            where("technician", "==", tech),
+            where("start", ">=", Timestamp.fromDate(from)),
+            where("start", "<=", Timestamp.fromDate(to)),
+            orderBy("start")
+          );
         }
-
-        // SINGLE TECHNICIAN
-        const tech = modeTech;
-
-        const q = query(
-          bookingsCol,
-          where("technician", "==", tech),
-          where("start", ">=", Timestamp.fromDate(from)),
-          where("start", "<=", Timestamp.fromDate(to)),
-          orderBy("start")
-        );
 
         const snap = await getDocs(q);
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        lastMode = "single";
         lastRows = rows;
-        lastSummary = [];
-
-        let totalHours = 0;
 
         outEl.style.display = "block";
-        daysEl.innerHTML = "";
-
-        if (!rows.length) {
-          totalEl.textContent = "Total hours: 0.00 h";
-          daysEl.innerHTML = '<div class="muted">No records in this range.</div>';
-          msgEl.textContent = "Loaded: 0 records.";
-          csvBtn.disabled = false;
-          printBtn.disabled = false;
-          return;
-        }
-
-        rows.forEach(b => {
-          const s = b.start.toDate();
-          const e = b.end.toDate();
-          const h = hoursBetween(s, e);
-          totalHours += h;
-
-          const createdAt = toJsDateMaybe(b.createdAt);
-          const late = isCreatedLate(createdAt, s);
-
-          const item = document.createElement("div");
-          item.className = "item";
-
-          const createdLine = createdAt
-            ? `Created by: ${b.createdBy || "?"} on: ${createdAt.toLocaleString()}${late ? " (added late)" : ""}`
-            : `Created by: ${b.createdBy || "?"}`;
-
-          item.innerHTML = `
-            <div><strong>${b.task || "assignment"}</strong></div>
-            <div class="small">${s.toLocaleString()} → ${e.toLocaleString()} (${h.toFixed(2)} h)</div>
-            <div class="small ${late ? "late" : ""}">${createdLine}</div>
-          `;
-          daysEl.appendChild(item);
-        });
-
-        totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
-        msgEl.textContent = `Loaded: ${rows.length} records.`;
-
         csvBtn.disabled = false;
         printBtn.disabled = false;
 
-      } catch (err) {
+        // ---------- ALL TECHNICIANS SUMMARY ----------
+        if (tech === "__ALL__"){
+          lastMode = "all";
+
+          const hoursByTech = new Map(TECHNICIANS.map(t => [t, 0]));
+
+          for (const b of rows){
+            const t = b.technician;
+            if (!hoursByTech.has(t)) hoursByTech.set(t, 0);
+
+            const s = b.start?.toDate?.() ? b.start.toDate() : null;
+            const e = b.end?.toDate?.() ? b.end.toDate() : null;
+            if (!s || !e) continue;
+
+            const parts = splitWorkHours(s, e, 8, 16);
+            const sum = parts.reduce((acc,p)=>acc+p.hours,0);
+            hoursByTech.set(t, (hoursByTech.get(t) || 0) + sum);
+          }
+
+          const summary = Array.from(hoursByTech.entries())
+            .map(([t,h]) => ({ tech: t, hours: h }))
+            .sort((a,b) => a.tech.localeCompare(b.tech));
+
+          lastAllSummary = summary;
+
+          totalEl.textContent = `All technicians — total records: ${rows.length}`;
+
+          for (const s of summary){
+            const r = document.createElement("div");
+            r.className = "sumRow";
+            r.innerHTML = `<strong>${s.tech}</strong><span>${s.hours.toFixed(2)} h</span>`;
+            daysEl.appendChild(r);
+          }
+
+          msgEl.textContent = `Loaded: ${rows.length} records.`;
+          return;
+        }
+
+        // ---------- SINGLE TECH DETAILED ----------
+        lastMode = "single";
+
+        // grupowanie per dzień (wg start->end liczone w oknie pracy)
+        const dayMap = new Map(); // dateKey -> {hours, items:[]}
+
+        for (const b of rows){
+          const s = b.start?.toDate?.() ? b.start.toDate() : null;
+          const e = b.end?.toDate?.() ? b.end.toDate() : null;
+          if (!s || !e) continue;
+
+          const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
+          const createdBy = b.createdBy || "?";
+
+          // LATE RULE: createdAt date > assignment start date (po dacie zadania)
+          let isLate = false;
+          if (createdAt){
+            const ca = startOfDay(createdAt);
+            const asg = startOfDay(s);
+            isLate = ca > asg;
+          }
+
+          const parts = splitWorkHours(s, e, 8, 16);
+          // jeżeli coś jest całkiem poza godzinami pracy => parts puste => wtedy 0h i nie pokazujemy
+          if (!parts.length) continue;
+
+          for (const p of parts){
+            if (!dayMap.has(p.dateKey)){
+              dayMap.set(p.dateKey, { hours: 0, items: [] });
+            }
+            const day = dayMap.get(p.dateKey);
+            day.hours += p.hours;
+            day.items.push({
+              task: b.task || "assignment",
+              start: s,
+              end: e,
+              hours: p.hours,
+              createdBy,
+              createdAt,
+              isLate
+            });
+          }
+        }
+
+        // sort dni rosnąco
+        const dayKeys = Array.from(dayMap.keys()).sort();
+
+        let totalHours = 0;
+        for (const k of dayKeys) totalHours += dayMap.get(k).hours;
+
+        totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
+        msgEl.textContent = `Loaded: ${rows.length} records. (Work-hours split applied)`;
+
+        // render dni
+        for (const k of dayKeys){
+          const box = document.createElement("div");
+          box.className = "dayBox";
+
+          const day = dayMap.get(k);
+          const header = document.createElement("div");
+          header.className = "dayHeader";
+          header.innerHTML = `<div>${k}</div><div>${day.hours.toFixed(2)} h</div>`;
+          box.appendChild(header);
+
+          // sort tasks w dniu po task name (stabilnie) / ewentualnie po start
+          day.items.sort((a,b) => a.start - b.start);
+
+          for (const it of day.items){
+            const item = document.createElement("div");
+            item.className = "item" + (it.isLate ? " late" : "");
+            const createdAtTxt = it.createdAt ? fmtDateTime(it.createdAt) : "?";
+            item.innerHTML = `
+              <div class="titleRow">
+                <div><strong>${it.task}</strong></div>
+                <div style="font-weight:800">${it.hours.toFixed(2)} h</div>
+              </div>
+              <div class="small">${fmtDateTime(it.start)} → ${fmtDateTime(it.end)}</div>
+              <div class="small">Created by: <strong>${it.createdBy}</strong> — created at: ${createdAtTxt}</div>
+            `;
+            box.appendChild(item);
+          }
+
+          daysEl.appendChild(box);
+        }
+
+      } catch (err){
         console.error(err);
         msgEl.textContent = `ERROR: ${err?.message || err}`;
       }
     });
 
+    // ---------- CSV ----------
     csvBtn.addEventListener("click", () => {
-      if (lastMode === "all") {
-        const header = ["technician","total_hours"];
-        const lines = [header.join(",")];
-        (lastSummary || []).forEach(r => {
-          lines.push(`"${r.tech}","${r.hours.toFixed(2)}"`);
-        });
+      if (!lastFrom || !lastTo) return;
 
-        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `technician-report_ALL_${fromEl.value}_to_${toEl.value}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+      if (lastMode === "all"){
+        const header = ["Technician","Total hours (08-16)","From","To"];
+        const lines = [header];
+        for (const s of lastAllSummary){
+          lines.push([s.tech, s.hours.toFixed(2), lastFrom.toISOString().slice(0,10), lastTo.toISOString().slice(0,10)]);
+        }
+        downloadCSV(`all_technicians_${lastFrom.toISOString().slice(0,10)}_${lastTo.toISOString().slice(0,10)}.csv`, lines);
         return;
       }
 
-      if (!lastRows.length) return;
+      // single
+      const header = ["Technician","Assignment date","Task","Hours counted","Start","End","CreatedBy","CreatedAt","LateCreatedAfterAssignmentDate"];
+      const lines = [header];
 
-      const header = ["technician","task","start","end","hours","createdBy","createdAt","late","id"];
-      const lines = [header.join(",")];
+      const tech = (lastTech === "__ALL__") ? "" : lastTech;
 
-      lastRows.forEach(b => {
-        const s = b.start.toDate();
-        const e = b.end.toDate();
-        const h = hoursBetween(s, e);
-        const createdAt = toJsDateMaybe(b.createdAt);
-        const late = isCreatedLate(createdAt, s) ? "YES" : "NO";
-        const createdAtStr = createdAt ? createdAt.toISOString() : "";
+      for (const b of lastRows){
+        const s = b.start?.toDate?.() ? b.start.toDate() : null;
+        const e = b.end?.toDate?.() ? b.end.toDate() : null;
+        if (!s || !e) continue;
 
-        const row = [
-          b.technician || "",
-          (b.task || "").replaceAll('"','""'),
-          s.toISOString(),
-          e.toISOString(),
-          h.toFixed(2),
-          (b.createdBy || "").replaceAll('"','""'),
-          createdAtStr,
-          late,
-          b.id || ""
-        ].map(v => `"${v}"`);
+        const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
+        const createdBy = b.createdBy || "?";
 
-        lines.push(row.join(","));
-      });
+        let isLate = false;
+        if (createdAt){
+          isLate = startOfDay(createdAt) > startOfDay(s);
+        }
 
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `technician-report_${techEl.value}_${fromEl.value}_to_${toEl.value}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+        const parts = splitWorkHours(s, e, 8, 16);
+        for (const p of parts){
+          lines.push([
+            tech,
+            p.dateKey,
+            b.task || "assignment",
+            p.hours.toFixed(2),
+            fmtDateTime(s),
+            fmtDateTime(e),
+            createdBy,
+            createdAt ? fmtDateTime(createdAt) : "",
+            isLate ? "YES" : "NO"
+          ]);
+        }
+      }
+
+      downloadCSV(`technician_${tech}_${lastFrom.toISOString().slice(0,10)}_${lastTo.toISOString().slice(0,10)}.csv`, lines);
     });
 
-    printBtn.addEventListener("click", () => window.print());
+    // ---------- PRINT ----------
+    printBtn.addEventListener("click", () => {
+      const fromS = lastFrom ? lastFrom.toISOString().slice(0,10) : "";
+      const toS = lastTo ? lastTo.toISOString().slice(0,10) : "";
+
+      const style = `
+        <style>
+          body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:18px;color:#111827}
+          h1{margin:0 0 6px;font-size:18px}
+          .muted{color:#6b7280;font-size:12px;margin-bottom:12px}
+          .sumRow{display:flex;justify-content:space-between;padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;margin-top:8px}
+          .dayBox{margin-top:12px;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+          .dayHeader{display:flex;justify-content:space-between;font-weight:800;margin-bottom:6px}
+          .item{padding:8px 10px;border-radius:10px;border:1px solid #e5e7eb;margin-top:8px}
+          .late{border-color:#ff7a7a;background:#ffecec}
+          .small{font-size:12px;color:#6b7280}
+        </style>
+      `;
+
+      if (lastMode === "all"){
+        const rows = lastAllSummary
+          .map(s => `<div class="sumRow"><strong>${s.tech}</strong><span>${s.hours.toFixed(2)} h</span></div>`)
+          .join("");
+        openPrint(`
+          <html><head><title>All technicians report</title>${style}</head>
+          <body>
+            <h1>All technicians report</h1>
+            <div class="muted">Range: ${fromS} → ${toS} (work hours 08:00–16:00)</div>
+            ${rows}
+          </body></html>
+        `);
+        return;
+      }
+
+      // single print – bierzemy gotowy HTML z wyników
+      openPrint(`
+        <html><head><title>Technician report</title>${style}</head>
+        <body>
+          <h1>Technician report: ${lastTech}</h1>
+          <div class="muted">Range: ${fromS} → ${toS} (work hours 08:00–16:00)</div>
+          <div><strong>${totalEl.textContent}</strong></div>
+          ${daysEl.innerHTML}
+        </body></html>
+      `);
+    });
   </script>
 </body>
 </html>
