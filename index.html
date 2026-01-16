@@ -37,6 +37,19 @@
     .item.late{
       background:#ffecec;border-color:#ffb4b4
     }
+.lateBadge{
+  display:inline-block;
+  margin-top:6px;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:700;
+  color:#991b1b;
+  background:#fee2e2;
+  border:1px solid #fecaca;
+}
+
+    
     .titleRow{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
     .small{font-size:12px;color:#6b7280;line-height:1.35}
     .dayBox{
@@ -493,13 +506,19 @@
             item.className = "item" + (it.isLate ? " late" : "");
             const createdAtTxt = it.createdAt ? fmtDateTime(it.createdAt) : "?";
 
-            item.innerHTML = `
-              <div class="titleRow">
-                <div><strong>${it.task}</strong></div>
-                <div style="font-weight:800">${it.hours.toFixed(2)} h</div>
-              </div>
-              <div class="small">${fmtDateTime(it.start)} → ${fmtDateTime(it.end)}</div>
-              <div class="small">Created by: <strong>${it.createdBy}</strong> — created at: ${createdAtTxt}</div>
+          const lateTxt = it.isLate
+  ? `<div class="lateBadge">Added after the scheduled day</div>`
+  : "";
+
+item.innerHTML = `
+  <div class="titleRow">
+    <div><strong>${it.task}</strong></div>
+    <div style="font-weight:800">${it.hours.toFixed(2)} h</div>
+  </div>
+  <div class="small">${fmtDateTime(it.start)} → ${fmtDateTime(it.end)}</div>
+  <div class="small">Created by: <strong>${it.createdBy}</strong> — created at: ${createdAtTxt}</div>
+  ${lateTxt}
+`
             `;
             box.appendChild(item);
           }
@@ -543,15 +562,19 @@
         row.className = "tableRow" + (r.isLate ? " late" : "");
         const createdAtTxt = r.createdAt ? fmtDateTime(r.createdAt) : "?";
 
-        row.innerHTML = `
-          <div class="mono"><strong>${dmyFromYmd(r.dateKey)}</strong><br/>
-            <span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span>
-          </div>
-          <div>
-            <div><strong>${r.task}</strong></div>
-            <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
-          </div>
-          <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
+        const lateTxt = r.isLate
+  ? `<div class="lateBadge">Added after the scheduled day</div>`
+  : "";
+
+row.innerHTML = `
+  <div class="mono"><strong>${r.dateKey}</strong><br/><span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span></div>
+  <div>
+    <div><strong>${r.task}</strong></div>
+    <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
+    ${lateTxt}
+  </div>
+  <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
+
         `;
         box.appendChild(row);
       }
