@@ -52,6 +52,27 @@
     .sumRow strong{font-size:13px}
     .sumRow span{font-variant-numeric:tabular-nums;font-weight:800}
     .note{margin-top:8px;font-size:12px;color:#6b7280}
+
+  
+  .detailsBox{margin-top:12px}
+.techHeader{font-weight:900;font-size:13px;margin:14px 0 6px}
+.tableRow{
+  display:grid;
+  grid-template-columns: 140px 1fr 90px;
+  gap:10px;
+  align-items:start;
+  padding:10px 12px;
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  background:#fff;
+  margin-top:8px;
+}
+@media (max-width: 860px){
+  .tableRow{grid-template-columns:1fr}
+}
+.mono{font-variant-numeric:tabular-nums}
+
+  
   </style>
 </head>
 <body>
@@ -86,6 +107,7 @@
 
     <div class="toolbar">
       <button class="btn2" id="csv" disabled>Export CSV</button>
+ <button class="btn2" id="details" disabled>Show details</button>
       <button class="btn2" id="print" disabled>Print</button>
     </div>
 
@@ -133,6 +155,10 @@
     const daysEl = document.getElementById("days");
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
+    const detailsBtn = document.getElementById("details");
+let allDetailsVisible = false;
+let lastAllDetailRows = []; // przygotowane wiersze do renderu detali
+
 
     // domyślnie: bieżący miesiąc
    
@@ -181,9 +207,15 @@ function splitWorkHours(start, end){
 }
 
 
-    function fmtDateTime(d){
-      return d.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
-    }
+  function fmtDateTime(d){
+  const dd = String(d.getDate()).padStart(2,"0");
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2,"0");
+  const mi = String(d.getMinutes()).padStart(2,"0");
+  return `${dd}/${mm}/${yyyy}, ${hh}:${mi}`;
+}
+
 
     function downloadCSV(filename, rows){
       const esc = (v) => {
@@ -229,6 +261,11 @@ function splitWorkHours(start, end){
       printBtn.disabled = true;
       daysEl.innerHTML = "";
       totalEl.textContent = "";
+      detailsBtn.disabled = true;
+detailsBtn.textContent = "Show details";
+allDetailsVisible = false;
+lastAllDetailRows = [];
+
 
       const tech = techEl.value;
       const from = new Date(fromEl.value + "T00:00:00");
@@ -321,6 +358,64 @@ for (const b of rows){
             r.innerHTML = `<strong>${s.tech}</strong><span>${s.hours.toFixed(2)} h</span>`;
             daysEl.appendChild(r);
           }
+// przygotuj detale do pokazania (ale nie renderuj jeszcze)
+const MAX_HOURS_PER_DAY = 8;
+const usedByTechDay2 = new Map(); // tech -> Map(dateKey -> used)
+lastAllDetailRows = [];
+
+for (const b of rows){
+  const t = b.technician;
+  if (!t) continue;
+  if (!usedByTechDay2.has(t)) usedByTechDay2.set(t, new Map());
+  const usedMap = usedByTechDay2.get(t);
+
+  const s = b.start?.toDate?.() ? b.start.toDate() : null;
+  const e = b.end?.toDate?.() ? b.end.toDate() : null;
+  if (!s || !e) continue;
+
+  const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
+  const createdBy = b.createdBy || "?";
+
+  // Late: created after assignment day
+  let isLate = false;
+  if (createdAt){
+    isLate = startOfDay(createdAt) > startOfDay(s);
+  }
+
+  const parts = splitWorkHours(s, e); // rozbicie REALNE na dni (bez cap)
+
+  for (const p of parts){
+    const used = usedMap.get(p.dateKey) || 0;
+    const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+    const counted = Math.min(p.hours, remaining);
+    if (counted <= 0) continue;
+
+    usedMap.set(p.dateKey, used + counted);
+
+    lastAllDetailRows.push({
+      technician: t,
+      dateKey: p.dateKey,
+      task: b.task || "assignment",
+      hours: counted,
+      start: s,
+      end: e,
+      createdBy,
+      createdAt,
+      isLate
+    });
+  }
+}
+
+// sort: tech -> date -> start
+lastAllDetailRows.sort((a,b) => {
+  const tc = a.technician.localeCompare(b.technician);
+  if (tc) return tc;
+  const dc = a.dateKey.localeCompare(b.dateKey);
+  if (dc) return dc;
+  return a.start - b.start;
+});
+
+detailsBtn.disabled = false;
 
           msgEl.textContent = `Loaded: ${rows.length} records.`;
           return;
@@ -435,6 +530,54 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
         msgEl.textContent = `ERROR: ${err?.message || err}`;
       }
     });
+
+    detailsBtn.addEventListener("click", () => {
+  if (lastMode !== "all") return;
+
+  allDetailsVisible = !allDetailsVisible;
+  detailsBtn.textContent = allDetailsVisible ? "Hide details" : "Show details";
+
+  // usuń poprzednie detale
+  const existing = document.getElementById("allDetailsBox");
+  if (existing) existing.remove();
+
+  if (!allDetailsVisible) return;
+
+  const box = document.createElement("div");
+  box.id = "allDetailsBox";
+  box.className = "detailsBox";
+
+  let currentTech = null;
+
+  for (const r of lastAllDetailRows){
+    if (r.technician !== currentTech){
+      currentTech = r.technician;
+      const h = document.createElement("div");
+      h.className = "techHeader";
+      h.textContent = currentTech;
+      box.appendChild(h);
+    }
+
+    const row = document.createElement("div");
+    row.className = "tableRow" + (r.isLate ? " late" : "");
+    const createdAtTxt = r.createdAt ? fmtDateTime(r.createdAt) : "?";
+
+    row.innerHTML = `
+      <div class="mono"><strong>${r.dateKey}</strong><br/><span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span></div>
+      <div>
+        <div><strong>${r.task}</strong></div>
+        <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
+      </div>
+      <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
+    `;
+
+    box.appendChild(row);
+  }
+
+  // wstaw pod summary
+  daysEl.appendChild(box);
+});
+
 
     // ---------- CSV ----------
     csvBtn.addEventListener("click", () => {
