@@ -94,7 +94,7 @@
     <div class="result" id="out" style="display:none">
       <div class="total" id="total"></div>
       <div id="days"></div>
-      <div class="note">Work hours rule: only 08:00–16:00 counted (max 8h/day). Nights are not counted.</div>
+      <div class="note">Work hours rule: real hours are counted, but capped at max 8.00 h per day. Nights are not counted.</div>
     </div>
   </div>
 
@@ -158,36 +158,37 @@
     function minDate(a,b){ return a < b ? a : b; }
     function maxDate(a,b){ return a > b ? a : b; }
 
-    // Liczy godziny tylko w oknie pracy dla danego dnia (08:00-16:00) i rozbija zakres na dni
-    function splitWorkHours(start, end, workStartHour=8, workEndHour=16){
-      const out = []; // [{dateKey, hours}]
-      if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
+// Liczy realne godziny, rozbija na dni i tnie do MAX 8h/dzień (bez stałych godzin start/stop)
+function splitWorkHours(start, end){
+  const MAX_HOURS_PER_DAY = 8;
+  const out = []; // [{dateKey, hours}]
+  if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
 
-      let d = startOfDay(start);
-      const endDay = startOfDay(end);
+  // helpery lokalne
+  const pad2 = (n) => String(n).padStart(2,"0");
+  const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+  const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+  const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+  const minDate = (a,b) => a < b ? a : b;
+  const maxDate = (a,b) => a > b ? a : b;
 
-      while (d <= endDay){
-        const dayStart = new Date(d); dayStart.setHours(workStartHour,0,0,0);
-        const dayEnd   = new Date(d); dayEnd.setHours(workEndHour,0,0,0);
+  let d = startOfDay(start);
+  const lastDay = startOfDay(end);
 
-        const segStart = maxDate(start, dayStart);
-        const segEnd   = minDate(end, dayEnd);
+  while (d <= lastDay){
+    const segStart = maxDate(start, startOfDay(d));
+    const segEnd = minDate(end, endOfDay(d));
 
-        let hours = 0;
-        if (segEnd > segStart){
-          hours = (segEnd - segStart) / (1000*60*60);
-          // safety cap
-          if (hours > (workEndHour-workStartHour)) hours = (workEndHour-workStartHour);
-        }
-
-        if (hours > 0){
-          out.push({ dateKey: ymd(d), hours });
-        }
-
-        d = addDays(d, 1);
-      }
-      return out;
+    if (segEnd > segStart){
+      let hours = (segEnd - segStart) / (1000*60*60);
+      if (hours > MAX_HOURS_PER_DAY) hours = MAX_HOURS_PER_DAY; // sztywna zasada
+      out.push({ dateKey: ymd(d), hours });
     }
+    d = addDays(d, 1);
+  }
+  return out;
+}
 
     function fmtDateTime(d){
       return d.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
@@ -290,7 +291,8 @@
             const e = b.end?.toDate?.() ? b.end.toDate() : null;
             if (!s || !e) continue;
 
-            const parts = splitWorkHours(s, e, 8, 16);
+            const parts = splitWorkHours(s, e);
+
             const sum = parts.reduce((acc,p)=>acc+p.hours,0);
             hoursByTech.set(t, (hoursByTech.get(t) || 0) + sum);
           }
@@ -336,7 +338,8 @@
             isLate = ca > asg;
           }
 
-          const parts = splitWorkHours(s, e, 8, 16);
+          const parts = splitWorkHours(s, e);
+
           // jeżeli coś jest całkiem poza godzinami pracy => parts puste => wtedy 0h i nie pokazujemy
           if (!parts.length) continue;
 
@@ -438,7 +441,8 @@
           isLate = startOfDay(createdAt) > startOfDay(s);
         }
 
-        const parts = splitWorkHours(s, e, 8, 16);
+        const parts = splitWorkHours(s, e);
+
         for (const p of parts){
           lines.push([
             tech,
