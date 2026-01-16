@@ -52,6 +52,44 @@
     .sumRow strong{font-size:13px}
     .sumRow span{font-variant-numeric:tabular-nums;font-weight:800}
     .note{margin-top:8px;font-size:12px;color:#6b7280}
+
+  /* --- hide CSV button (keep functionality in code) --- */
+#csv { display: none !important; }
+
+/* --- print layout --- */
+@media print {
+  body { background: #fff; padding: 0; }
+  .card { border: 0; box-shadow: none; max-width: none; margin: 0; }
+  .row, .toolbar { display: none !important; }     /* ukryj panel filtrów i przyciski */
+  #msg { display: none !important; }               /* ukryj komunikaty typu Ready/Loading */
+  #out { display: block !important; }              /* wynik ma być widoczny */
+  .print-header { display: block !important; }
+  .watermark { display: block !important; }
+}
+
+/* widoczne tylko w PDF/print */
+.print-header { display: none; margin: 0 0 12px; }
+.print-header h2 { margin: 0 0 6px; font-size: 16px; }
+.print-meta { font-size: 12px; color: #6b7280; display: flex; gap: 14px; flex-wrap: wrap; }
+
+.watermark{
+  display:none;
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:9999;
+  opacity:0.10;
+  font-size:64px;
+  font-weight:800;
+  color:#111827;
+  transform:rotate(-20deg);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+
+  
   </style>
 </head>
 <body>
@@ -89,14 +127,22 @@
       <button class="btn2" id="print" disabled>Print</button>
     </div>
 
-    <div class="muted" id="msg">Ready.</div>
+   <div class="watermark" id="wm">INTERNAL USE</div>
 
-    <div class="result" id="out" style="display:none">
-      <div class="total" id="total"></div>
-      <div id="days"></div>
-      <div class="note">Work hours rule: real hours are counted, but capped at max 8.00 h per day. Nights are not counted.</div>
+<div class="result" id="out" style="display:none">
+  <div class="print-header" id="printHeader">
+    <h2>Lab technician report</h2>
+    <div class="print-meta">
+      <div><strong>Technician:</strong> <span id="phTech"></span></div>
+      <div><strong>Range:</strong> <span id="phRange"></span></div>
+      <div><strong>Generated on:</strong> <span id="phGen"></span></div>
     </div>
   </div>
+
+  <div class="total" id="total"></div>
+  <div id="days"></div>
+</div>
+
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
@@ -133,6 +179,11 @@
     const daysEl = document.getElementById("days");
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
+    // print header elements (PDF/print)
+const phTechEl = document.getElementById("phTech");
+const phRangeEl = document.getElementById("phRange");
+const phGenEl = document.getElementById("phGen");
+
 
     // domyślnie: bieżący miesiąc
    
@@ -367,6 +418,15 @@ function splitWorkHours(start, end){
 
         totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
         msgEl.textContent = `Loaded: ${rows.length} records. (Work-hours split applied)`;
+
+        // update print header
+phTechEl.textContent = techEl.value;
+phRangeEl.textContent = `${fromEl.value} → ${toEl.value}`;
+
+// generated timestamp (local)
+const gen = new Date();
+phGenEl.textContent = gen.toLocaleString();
+
 
         // render dni
         for (const k of dayKeys){
