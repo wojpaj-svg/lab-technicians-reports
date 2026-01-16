@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Technician report</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;margin:0;padding:18px;color:#111827}
+    .card{max-width:980px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px 14px 18px}
+    h1{font-size:18px;margin:0 0 10px}
+    .row{display:grid;grid-template-columns: 1fr 1fr 1fr auto;gap:10px;align-items:end}
+    label{font-size:12px;color:#6b7280;display:block;margin-bottom:4px}
+    select,input{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;background:#fff}
+    button{padding:9px 14px;border-radius:999px;border:0;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer}
+    .muted{color:#6b7280;font-size:12px;margin-top:10px}
+    .result{margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px}
+    .total{font-weight:700}
+    .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+    .btn2{background:#e5e7eb;color:#111827}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Technician report</h1>
+
+    <div class="row">
+      <div>
+        <label>Technician</label>
+        <select id="tech">
+          <option>Sasi</option>
+          <option>Viviana</option>
+          <option>Lara</option>
+          <option>Klara</option>
+          <option>Simon</option>
+        </select>
+      </div>
+      <div>
+        <label>Date from</label>
+        <input id="from" type="date" />
+      </div>
+      <div>
+        <label>Date to</label>
+        <input id="to" type="date" />
+      </div>
+      <div>
+        <button id="gen">Generate</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn2" id="csv" disabled>Export CSV</button>
+      <button class="btn2" id="print" disabled>Print</button>
+    </div>
+
+    <div class="muted" id="msg">Ready.</div>
+
+    <div class="result" id="out" style="display:none">
+      <div class="total" id="total"></div>
+      <div id="days"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // === TWÓJ FIREBASE CONFIG (TEN SAM CO W KALENDARZU) ===
+    const firebaseConfig = {
+      apiKey: "AIzaSyBz9WjF4aUhrCujzpzn4DHGX1MW--sV7iQ",
+      authDomain: "lab-technicians-booking.firebaseapp.com",
+      projectId: "lab-technicians-booking",
+      storageBucket: "lab-technicians-booking.firebasestorage.app",
+      messagingSenderId: "897254183022",
+      appId: "1:897254183022:web:5ed0e7b98fa5553717967f",
+      measurementId: "G-ZF5Z2GLBK7"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const bookingsCol = collection(db, "bookings");
+
+    const techEl = document.getElementById("tech");
+    const fromEl = document.getElementById("from");
+    const toEl = document.getElementById("to");
+    const genBtn = document.getElementById("gen");
+    const msgEl = document.getElementById("msg");
+    const outEl = document.getElementById("out");
+    const totalEl = document.getElementById("total");
+    const daysEl = document.getElementById("days");
+    const csvBtn = document.getElementById("csv");
+    const printBtn = document.getElementById("print");
+
+    // domyślnie: bieżący miesiąc
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    fromEl.value = first.toISOString().slice(0,10);
+    toEl.value = last.toISOString().slice(0,10);
+
+    genBtn.addEventListener("click", async () => {
+      msgEl.textContent = "Loading…";
+      outEl.style.display = "none";
+      csvBtn.disabled = true;
+      printBtn.disabled = true;
+
+      const tech = techEl.value;
+      const from = new Date(fromEl.value + "T00:00:00");
+      const to = new Date(toEl.value + "T23:59:59");
+
+      // na razie tylko test pobierania
+      const q = query(
+        bookingsCol,
+        where("technician", "==", tech),
+        where("start", ">=", Timestamp.fromDate(from)),
+        where("start", "<=", Timestamp.fromDate(to)),
+        orderBy("start")
+      );
+
+      const snap = await getDocs(q);
+      msgEl.textContent = `Loaded: ${snap.size} records (next step: calculations + red/black rule + print/csv).`;
+    });
+  </script>
+</body>
+</html>
