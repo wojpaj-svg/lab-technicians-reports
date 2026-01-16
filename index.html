@@ -8,18 +8,31 @@
     body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f7fb;margin:0;padding:18px;color:#111827}
     .card{max-width:980px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px 14px 18px}
     h1{font-size:18px;margin:0 0 10px}
-    .row{display:grid;grid-template-columns: 1fr 1fr 1fr auto;gap:10px;align-items:end}
+
+    /* poprawione odstępy i szerokości (żeby daty nie nachodziły) */
+    .row{display:grid;grid-template-columns: 1fr 180px 180px auto;gap:14px;align-items:end}
+    @media (max-width: 760px){
+      .row{grid-template-columns: 1fr; gap:10px}
+    }
+
     label{font-size:12px;color:#6b7280;display:block;margin-bottom:4px}
     select,input{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d1d5db;font-size:13px;background:#fff}
+    input[type="date"]{padding:7px 10px}
+
     button{padding:9px 14px;border-radius:999px;border:0;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer}
     button:disabled{opacity:.55;cursor:not-allowed}
+
     .muted{color:#6b7280;font-size:12px;margin-top:10px}
     .result{margin-top:14px;border-top:1px solid #e5e7eb;padding-top:12px}
     .total{font-weight:700}
-    .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+    .toolbar{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
     .btn2{background:#e5e7eb;color:#111827}
-    .item{padding:8px 10px;margin-top:6px;border-radius:10px;background:#eef3ff}
+
+    .item{padding:10px 12px;margin-top:8px;border-radius:10px;background:#eef3ff}
     .small{font-size:12px;color:#6b7280}
+    .late{color:#b91c1c !important;font-weight:700}
+    .summaryRow{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;margin-top:8px;border-radius:10px;background:#f3f4f6}
+    .mono{font-variant-numeric: tabular-nums}
   </style>
 </head>
 
@@ -31,11 +44,12 @@
       <div>
         <label>Technician</label>
         <select id="tech">
-          <option>Sasi</option>
-          <option>Viviana</option>
-          <option>Lara</option>
-          <option>Klara</option>
-          <option>Simon</option>
+          <option value="__ALL__">All technicians</option>
+          <option value="Sasi">Sasi</option>
+          <option value="Viviana">Viviana</option>
+          <option value="Lara">Lara</option>
+          <option value="Klara">Klara</option>
+          <option value="Simon">Simon</option>
         </select>
       </div>
       <div>
@@ -64,7 +78,6 @@
     </div>
   </div>
 
-  <!-- JEDYNY skrypt modułowy w całym pliku -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
@@ -98,9 +111,11 @@
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
 
+    let lastMode = "single"; // "single" | "all"
     let lastRows = [];
+    let lastSummary = [];
 
-    // domyślnie: bieżący miesiąc
+    // default: current month
     const now = new Date();
     const first = new Date(now.getFullYear(), now.getMonth(), 1);
     const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -109,6 +124,21 @@
 
     function hoursBetween(a, b){
       return (b - a) / (1000 * 60 * 60);
+    }
+
+    function toJsDateMaybe(ts){
+      if (!ts) return null;
+      if (ts instanceof Date) return ts;
+      if (typeof ts?.toDate === "function") return ts.toDate(); // Firestore Timestamp
+      return null;
+    }
+
+    // porównanie "czy utworzone po dniu startu" (ignorujemy godzinę)
+    function isCreatedLate(createdAt, startDate){
+      if (!createdAt || !startDate) return false;
+      const c = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate());
+      const s = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      return c.getTime() > s.getTime();
     }
 
     genBtn.addEventListener("click", async () => {
@@ -120,9 +150,64 @@
         csvBtn.disabled = true;
         printBtn.disabled = true;
 
-        const tech = techEl.value;
+        const modeTech = techEl.value;
         const from = new Date(fromEl.value + "T00:00:00");
         const to = new Date(toEl.value + "T23:59:59");
+
+        if (modeTech === "__ALL__") {
+          // ALL: jeden query po zakresie dat (bez technician filter) — nie powinno wymagać composite index
+          const qAll = query(
+            bookingsCol,
+            where("start", ">=", Timestamp.fromDate(from)),
+            where("start", "<=", Timestamp.fromDate(to)),
+            orderBy("start")
+          );
+
+          const snap = await getDocs(qAll);
+          const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+          // sum hours per technician
+          const map = new Map();
+          rows.forEach(b => {
+            const s = b.start.toDate();
+            const e = b.end.toDate();
+            const h = hoursBetween(s, e);
+            const tech = b.technician || "(unknown)";
+            map.set(tech, (map.get(tech) || 0) + h);
+          });
+
+          const summary = Array.from(map.entries())
+            .map(([tech, hours]) => ({ tech, hours }))
+            .sort((a,b) => a.tech.localeCompare(b.tech));
+
+          lastMode = "all";
+          lastSummary = summary;
+          lastRows = rows;
+
+          outEl.style.display = "block";
+          totalEl.textContent = `All technicians — total records: ${rows.length}`;
+          daysEl.innerHTML = "";
+
+          if (!summary.length) {
+            daysEl.innerHTML = '<div class="muted">No records in this range.</div>';
+            msgEl.textContent = "Loaded: 0 records.";
+          } else {
+            summary.forEach(s => {
+              const row = document.createElement("div");
+              row.className = "summaryRow";
+              row.innerHTML = `<div><strong>${s.tech}</strong></div><div class="mono">${s.hours.toFixed(2)} h</div>`;
+              daysEl.appendChild(row);
+            });
+            msgEl.textContent = `Loaded: ${rows.length} records.`;
+          }
+
+          csvBtn.disabled = false;
+          printBtn.disabled = false;
+          return;
+        }
+
+        // SINGLE TECHNICIAN
+        const tech = modeTech;
 
         const q = query(
           bookingsCol,
@@ -134,15 +219,22 @@
 
         const snap = await getDocs(q);
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        lastMode = "single";
         lastRows = rows;
+        lastSummary = [];
 
         let totalHours = 0;
 
+        outEl.style.display = "block";
+        daysEl.innerHTML = "";
+
         if (!rows.length) {
-          outEl.style.display = "block";
           totalEl.textContent = "Total hours: 0.00 h";
           daysEl.innerHTML = '<div class="muted">No records in this range.</div>';
           msgEl.textContent = "Loaded: 0 records.";
+          csvBtn.disabled = false;
+          printBtn.disabled = false;
           return;
         }
 
@@ -152,17 +244,24 @@
           const h = hoursBetween(s, e);
           totalHours += h;
 
+          const createdAt = toJsDateMaybe(b.createdAt);
+          const late = isCreatedLate(createdAt, s);
+
           const item = document.createElement("div");
           item.className = "item";
+
+          const createdLine = createdAt
+            ? `Created by: ${b.createdBy || "?"} on: ${createdAt.toLocaleString()}${late ? " (added late)" : ""}`
+            : `Created by: ${b.createdBy || "?"}`;
+
           item.innerHTML = `
             <div><strong>${b.task || "assignment"}</strong></div>
             <div class="small">${s.toLocaleString()} → ${e.toLocaleString()} (${h.toFixed(2)} h)</div>
-            <div class="small">Created by: ${b.createdBy || "?"}</div>
+            <div class="small ${late ? "late" : ""}">${createdLine}</div>
           `;
           daysEl.appendChild(item);
         });
 
-        outEl.style.display = "block";
         totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
         msgEl.textContent = `Loaded: ${rows.length} records.`;
 
@@ -176,15 +275,36 @@
     });
 
     csvBtn.addEventListener("click", () => {
+      if (lastMode === "all") {
+        const header = ["technician","total_hours"];
+        const lines = [header.join(",")];
+        (lastSummary || []).forEach(r => {
+          lines.push(`"${r.tech}","${r.hours.toFixed(2)}"`);
+        });
+
+        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `technician-report_ALL_${fromEl.value}_to_${toEl.value}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       if (!lastRows.length) return;
-      const header = ["technician","task","start","end","hours","createdBy","createdAt","id"];
+
+      const header = ["technician","task","start","end","hours","createdBy","createdAt","late","id"];
       const lines = [header.join(",")];
 
       lastRows.forEach(b => {
         const s = b.start.toDate();
         const e = b.end.toDate();
         const h = hoursBetween(s, e);
-        const createdAt = b.createdAt?.toDate ? b.createdAt.toDate().toISOString() : "";
+        const createdAt = toJsDateMaybe(b.createdAt);
+        const late = isCreatedLate(createdAt, s) ? "YES" : "NO";
+        const createdAtStr = createdAt ? createdAt.toISOString() : "";
+
         const row = [
           b.technician || "",
           (b.task || "").replaceAll('"','""'),
@@ -192,9 +312,11 @@
           e.toISOString(),
           h.toFixed(2),
           (b.createdBy || "").replaceAll('"','""'),
-          createdAt,
+          createdAtStr,
+          late,
           b.id || ""
         ].map(v => `"${v}"`);
+
         lines.push(row.join(","));
       });
 
@@ -207,9 +329,7 @@
       URL.revokeObjectURL(url);
     });
 
-    printBtn.addEventListener("click", () => {
-      window.print();
-    });
+    printBtn.addEventListener("click", () => window.print());
   </script>
 </body>
 </html>
