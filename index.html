@@ -9,7 +9,6 @@
     .card{max-width:1050px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px 14px 18px}
     h1{font-size:18px;margin:0 0 10px}
 
-    /* FIX: brak nachodzenia pól */
     .row{
       display:grid;
       grid-template-columns: minmax(220px,1fr) minmax(180px,240px) minmax(180px,240px) auto;
@@ -44,7 +43,6 @@
       margin-top:10px;padding:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fff
     }
     .dayHeader{font-weight:800;font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between}
-    .divider{height:1px;background:#eef2f7;margin:8px 0}
     .sumRow{
       display:flex;justify-content:space-between;align-items:center;
       padding:10px 12px;border-radius:12px;background:#f3f4f6;margin-top:8px
@@ -53,28 +51,30 @@
     .sumRow span{font-variant-numeric:tabular-nums;font-weight:800}
     .note{margin-top:8px;font-size:12px;color:#6b7280}
 
-  
-  .detailsBox{margin-top:12px}
-.techHeader{font-weight:900;font-size:13px;margin:14px 0 6px}
-.tableRow{
-  display:grid;
-  grid-template-columns: 140px 1fr 90px;
-  gap:10px;
-  align-items:start;
-  padding:10px 12px;
-  border:1px solid #e5e7eb;
-  border-radius:12px;
-  background:#fff;
-  margin-top:8px;
-}
-@media (max-width: 860px){
-  .tableRow{grid-template-columns:1fr}
-}
-.mono{font-variant-numeric:tabular-nums}
-
-  
+    .detailsBox{margin-top:12px}
+    .techHeader{font-weight:900;font-size:13px;margin:14px 0 6px}
+    .tableRow{
+      display:grid;
+      grid-template-columns: 160px 1fr 90px;
+      gap:10px;
+      align-items:start;
+      padding:10px 12px;
+      border:1px solid #e5e7eb;
+      border-radius:12px;
+      background:#fff;
+      margin-top:8px;
+    }
+    .tableRow.late{
+      background:#ffecec;
+      border-color:#ffb4b4;
+    }
+    @media (max-width: 860px){
+      .tableRow{grid-template-columns:1fr}
+    }
+    .mono{font-variant-numeric:tabular-nums}
   </style>
 </head>
+
 <body>
   <div class="card">
     <h1>Technician report</h1>
@@ -92,14 +92,17 @@
           <option>Stefanija</option>
         </select>
       </div>
+
       <div>
         <label>Date from</label>
-        <input id="from" type="date" />
+        <input id="from" type="date" autocomplete="off" />
       </div>
+
       <div>
         <label>Date to</label>
-        <input id="to" type="date" />
+        <input id="to" type="date" autocomplete="off" />
       </div>
+
       <div>
         <button id="gen">Generate</button>
       </div>
@@ -107,7 +110,7 @@
 
     <div class="toolbar">
       <button class="btn2" id="csv" disabled>Export CSV</button>
- <button class="btn2" id="details" disabled>Show details</button>
+      <button class="btn2" id="details" disabled>Show details</button>
       <button class="btn2" id="print" disabled>Print</button>
     </div>
 
@@ -125,7 +128,6 @@
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
     import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-    // === FIREBASE CONFIG (TEN SAM CO W KALENDARZU) ===
     const firebaseConfig = {
       apiKey: "AIzaSyBz9WjF4aUhrCujzpzn4DHGX1MW--sV7iQ",
       authDomain: "lab-technicians-booking.firebaseapp.com",
@@ -137,6 +139,7 @@
     };
 
     const TECHNICIANS = ["Sasi","Viviana","Lara","Klara","Simon","Stefanija"];
+    const MAX_HOURS_PER_DAY = 8;
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
@@ -156,23 +159,21 @@
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
     const detailsBtn = document.getElementById("details");
-let allDetailsVisible = false;
-let lastAllDetailRows = []; // przygotowane wiersze do renderu detali
 
+    let allDetailsVisible = false;
+    let lastAllDetailRows = [];
 
-    // domyślnie: bieżący miesiąc
-   
-    fromEl.value = "";
-    toEl.value = "";
+    // zawsze pusto po wejściu/odświeżeniu
+    function clearDates(){
+      fromEl.value = "";
+      toEl.value = "";
+    }
+    clearDates();
+    window.addEventListener("pageshow", clearDates);
 
-    // ---------- helpers ----------
     function pad2(n){ return String(n).padStart(2,"0"); }
-    function ymd(d){
-      return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
-    }
-    function sameDay(a,b){
-      return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-    }
+    function ymd(d){ return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+
     function startOfDay(d){
       const x = new Date(d); x.setHours(0,0,0,0); return x;
     }
@@ -182,40 +183,44 @@ let lastAllDetailRows = []; // przygotowane wiersze do renderu detali
     function minDate(a,b){ return a < b ? a : b; }
     function maxDate(a,b){ return a > b ? a : b; }
 
-// Liczy realne godziny, rozbija na dni i tnie do MAX 8h/dzień (bez stałych godzin start/stop)
-// Rozbija booking na części dzienne (REALNE godziny w danym dniu) – BEZ limitu 8h
-function splitWorkHours(start, end){
-  const out = []; // [{dateKey, hours}]
-  if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
-
-  const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
-  const endDay = startOfDay(end);
-
-  let d = startOfDay(start);
-
-  while (d <= endDay){
-    const segStart = maxDate(start, startOfDay(d));
-    const segEnd = minDate(end, endOfDay(d));
-
-    if (segEnd > segStart){
-      const hours = (segEnd - segStart) / (1000*60*60);
-      out.push({ dateKey: ymd(d), hours });
+    // YYYY-MM-DD -> DD/MM/YYYY (do wyświetlania)
+    function dmyFromYmd(key){
+      const [Y,M,D] = key.split("-");
+      return `${D}/${M}/${Y}`;
     }
-    d = addDays(d, 1);
-  }
-  return out;
-}
 
+    // DD/MM/YYYY, HH:MM (stały format)
+    function fmtDateTime(d){
+      const dd = pad2(d.getDate());
+      const mm = pad2(d.getMonth()+1);
+      const yyyy = d.getFullYear();
+      const hh = pad2(d.getHours());
+      const mi = pad2(d.getMinutes());
+      return `${dd}/${mm}/${yyyy}, ${hh}:${mi}`;
+    }
 
-  function fmtDateTime(d){
-  const dd = String(d.getDate()).padStart(2,"0");
-  const mm = String(d.getMonth()+1).padStart(2,"0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2,"0");
-  const mi = String(d.getMinutes()).padStart(2,"0");
-  return `${dd}/${mm}/${yyyy}, ${hh}:${mi}`;
-}
+    // Rozbija booking na części dzienne (REALNE godziny w danym dniu) – BEZ limitu 8h
+    function splitWorkHours(start, end){
+      const out = [];
+      if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
 
+      const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+      const endDay = startOfDay(end);
+
+      let d = startOfDay(start);
+
+      while (d <= endDay){
+        const segStart = maxDate(start, startOfDay(d));
+        const segEnd = minDate(end, endOfDay(d));
+
+        if (segEnd > segStart){
+          const hours = (segEnd - segStart) / (1000*60*60);
+          out.push({ dateKey: ymd(d), hours });
+        }
+        d = addDays(d, 1);
+      }
+      return out;
+    }
 
     function downloadCSV(filename, rows){
       const esc = (v) => {
@@ -245,27 +250,30 @@ function splitWorkHours(start, end){
       w.print();
     }
 
-    // cache ostatnie dane do CSV/Print
-    let lastMode = "single"; // "single" | "all"
-    let lastRows = [];       // raw bookings rows
-    let lastAllSummary = []; // [{tech, hours}]
+    let lastMode = "single";
+    let lastRows = [];
+    let lastAllSummary = [];
     let lastFrom = null;
     let lastTo = null;
     let lastTech = null;
 
-    // ---------- main ----------
     genBtn.addEventListener("click", async () => {
       msgEl.textContent = "Loading…";
       outEl.style.display = "none";
       csvBtn.disabled = true;
       printBtn.disabled = true;
+      detailsBtn.disabled = true;
+      detailsBtn.textContent = "Show details";
+      allDetailsVisible = false;
+      lastAllDetailRows = [];
       daysEl.innerHTML = "";
       totalEl.textContent = "";
-      detailsBtn.disabled = true;
-detailsBtn.textContent = "Show details";
-allDetailsVisible = false;
-lastAllDetailRows = [];
 
+      // WALIDACJA DAT
+      if (!fromEl.value || !toEl.value){
+        msgEl.textContent = "Please select both dates (from/to).";
+        return;
+      }
 
       const tech = techEl.value;
       const from = new Date(fromEl.value + "T00:00:00");
@@ -276,9 +284,6 @@ lastAllDetailRows = [];
       lastTech = tech;
 
       try {
-        // Query:
-        // - single tech: technician== + start range + orderBy start
-        // - all techs: only start range + orderBy start
         let q;
         if (tech === "__ALL__"){
           q = query(
@@ -305,44 +310,40 @@ lastAllDetailRows = [];
         csvBtn.disabled = false;
         printBtn.disabled = false;
 
-        // ---------- ALL TECHNICIANS SUMMARY ----------
+        // ===== ALL TECHS =====
         if (tech === "__ALL__"){
           lastMode = "all";
 
-          const MAX_HOURS_PER_DAY = 8;
+          const hoursByTech = new Map(TECHNICIANS.map(t => [t, 0]));
+          const usedByTechDay = new Map(); // tech -> Map(dateKey -> used)
 
-const hoursByTech = new Map(TECHNICIANS.map(t => [t, 0]));
-const usedByTechDay = new Map(); // tech -> Map(dateKey -> usedHours)
+          for (const b of rows){
+            const t = b.technician;
+            if (!t) continue;
 
-for (const b of rows){
-  const t = b.technician;
-  if (!t) continue;
+            if (!hoursByTech.has(t)) hoursByTech.set(t, 0);
+            if (!usedByTechDay.has(t)) usedByTechDay.set(t, new Map());
 
-  if (!hoursByTech.has(t)) hoursByTech.set(t, 0);
-  if (!usedByTechDay.has(t)) usedByTechDay.set(t, new Map());
+            const s = b.start?.toDate?.() ? b.start.toDate() : null;
+            const e = b.end?.toDate?.() ? b.end.toDate() : null;
+            if (!s || !e) continue;
 
-  const s = b.start?.toDate?.() ? b.start.toDate() : null;
-  const e = b.end?.toDate?.() ? b.end.toDate() : null;
-  if (!s || !e) continue;
+            const parts = splitWorkHours(s, e);
+            const usedMap = usedByTechDay.get(t);
 
-  const parts = splitWorkHours(s, e); // teraz BEZ capa
-  const usedMap = usedByTechDay.get(t);
+            let added = 0;
+            for (const p of parts){
+              const used = usedMap.get(p.dateKey) || 0;
+              const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+              const counted = Math.min(p.hours, remaining);
+              if (counted <= 0) continue;
 
-  let added = 0;
+              usedMap.set(p.dateKey, used + counted);
+              added += counted;
+            }
 
-  for (const p of parts){
-    const used = usedMap.get(p.dateKey) || 0;
-    const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
-    const counted = Math.min(p.hours, remaining);
-    if (counted <= 0) continue;
-
-    usedMap.set(p.dateKey, used + counted);
-    added += counted;
-  }
-
-  hoursByTech.set(t, (hoursByTech.get(t) || 0) + added);
-}
-
+            hoursByTech.set(t, (hoursByTech.get(t) || 0) + added);
+          }
 
           const summary = Array.from(hoursByTech.entries())
             .map(([t,h]) => ({ tech: t, hours: h }))
@@ -358,78 +359,72 @@ for (const b of rows){
             r.innerHTML = `<strong>${s.tech}</strong><span>${s.hours.toFixed(2)} h</span>`;
             daysEl.appendChild(r);
           }
-// przygotuj detale do pokazania (ale nie renderuj jeszcze)
-const MAX_HOURS_PER_DAY = 8;
-const usedByTechDay2 = new Map(); // tech -> Map(dateKey -> used)
-lastAllDetailRows = [];
 
-for (const b of rows){
-  const t = b.technician;
-  if (!t) continue;
-  if (!usedByTechDay2.has(t)) usedByTechDay2.set(t, new Map());
-  const usedMap = usedByTechDay2.get(t);
+          // przygotuj detale (bez renderu)
+          const usedByTechDay2 = new Map();
+          lastAllDetailRows = [];
 
-  const s = b.start?.toDate?.() ? b.start.toDate() : null;
-  const e = b.end?.toDate?.() ? b.end.toDate() : null;
-  if (!s || !e) continue;
+          for (const b of rows){
+            const t = b.technician;
+            if (!t) continue;
 
-  const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
-  const createdBy = b.createdBy || "?";
+            if (!usedByTechDay2.has(t)) usedByTechDay2.set(t, new Map());
+            const usedMap = usedByTechDay2.get(t);
 
-  // Late: created after assignment day
-  let isLate = false;
-  if (createdAt){
-    isLate = startOfDay(createdAt) > startOfDay(s);
-  }
+            const s = b.start?.toDate?.() ? b.start.toDate() : null;
+            const e = b.end?.toDate?.() ? b.end.toDate() : null;
+            if (!s || !e) continue;
 
-  const parts = splitWorkHours(s, e); // rozbicie REALNE na dni (bez cap)
+            const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
+            const createdBy = b.createdBy || "?";
 
-  for (const p of parts){
-    const used = usedMap.get(p.dateKey) || 0;
-    const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
-    const counted = Math.min(p.hours, remaining);
-    if (counted <= 0) continue;
+            let isLate = false;
+            if (createdAt){
+              isLate = startOfDay(createdAt) > startOfDay(s);
+            }
 
-    usedMap.set(p.dateKey, used + counted);
+            const parts = splitWorkHours(s, e);
 
-    lastAllDetailRows.push({
-      technician: t,
-      dateKey: p.dateKey,
-      task: b.task || "assignment",
-      hours: counted,
-      start: s,
-      end: e,
-      createdBy,
-      createdAt,
-      isLate
-    });
-  }
-}
+            for (const p of parts){
+              const used = usedMap.get(p.dateKey) || 0;
+              const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+              const counted = Math.min(p.hours, remaining);
+              if (counted <= 0) continue;
 
-// sort: tech -> date -> start
-lastAllDetailRows.sort((a,b) => {
-  const tc = a.technician.localeCompare(b.technician);
-  if (tc) return tc;
-  const dc = a.dateKey.localeCompare(b.dateKey);
-  if (dc) return dc;
-  return a.start - b.start;
-});
+              usedMap.set(p.dateKey, used + counted);
 
-detailsBtn.disabled = false;
+              lastAllDetailRows.push({
+                technician: t,
+                dateKey: p.dateKey,
+                task: b.task || "assignment",
+                hours: counted,
+                start: s,
+                end: e,
+                createdBy,
+                createdAt,
+                isLate
+              });
+            }
+          }
 
+          lastAllDetailRows.sort((a,b) => {
+            const tc = a.technician.localeCompare(b.technician);
+            if (tc) return tc;
+            const dc = a.dateKey.localeCompare(b.dateKey);
+            if (dc) return dc;
+            return a.start - b.start;
+          });
+
+          detailsBtn.disabled = false;
           msgEl.textContent = `Loaded: ${rows.length} records.`;
           return;
         }
 
-        // ---------- SINGLE TECH DETAILED ----------
+        // ===== SINGLE TECH =====
         lastMode = "single";
 
-        // grupowanie per dzień (wg start->end liczone w oknie pracy)
         const dayMap = new Map(); // dateKey -> {hours, items:[]}
-
-        const MAX_HOURS_PER_DAY = 8;
-const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
-
+        const dayUsed = new Map(); // dateKey -> used (cap 8)
 
         for (const b of rows){
           const s = b.start?.toDate?.() ? b.start.toDate() : null;
@@ -439,52 +434,40 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
           const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
           const createdBy = b.createdBy || "?";
 
-          // LATE RULE: createdAt date > assignment start date (po dacie zadania)
           let isLate = false;
           if (createdAt){
-            const ca = startOfDay(createdAt);
-            const asg = startOfDay(s);
-            isLate = ca > asg;
+            isLate = startOfDay(createdAt) > startOfDay(s);
           }
 
           const parts = splitWorkHours(s, e);
-
-          // jeżeli coś jest całkiem poza godzinami pracy => parts puste => wtedy 0h i nie pokazujemy
           if (!parts.length) continue;
 
-         for (const p of parts){
-  const used = dayUsed.get(p.dateKey) || 0;
-  const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
-  const counted = Math.min(p.hours, remaining);
+          for (const p of parts){
+            const used = dayUsed.get(p.dateKey) || 0;
+            const remaining = Math.max(0, MAX_HOURS_PER_DAY - used);
+            const counted = Math.min(p.hours, remaining);
+            if (counted <= 0) continue;
 
-  // jeśli dzienny limit już wykorzystany – nie dopisujemy dalej
-  if (counted <= 0) continue;
+            dayUsed.set(p.dateKey, used + counted);
 
-  dayUsed.set(p.dateKey, used + counted);
+            if (!dayMap.has(p.dateKey)){
+              dayMap.set(p.dateKey, { hours: 0, items: [] });
+            }
+            const day = dayMap.get(p.dateKey);
+            day.hours += counted;
 
-  if (!dayMap.has(p.dateKey)){
-    dayMap.set(p.dateKey, { hours: 0, items: [] });
-  }
-  const day = dayMap.get(p.dateKey);
+            day.items.push({
+              task: b.task || "assignment",
+              start: s,
+              end: e,
+              hours: counted,
+              createdBy,
+              createdAt,
+              isLate
+            });
+          }
+        }
 
-  day.hours += counted;
-
-  day.items.push({
-    task: b.task || "assignment",
-    start: s,
-    end: e,
-    hours: counted,              // <-- UWAGA: zapisujemy policzoną część (po capie)
-    createdBy,
-    createdAt,
-    isLate
-  });
-           
-}
-}
-
-        
-
-        // sort dni rosnąco
         const dayKeys = Array.from(dayMap.keys()).sort();
 
         let totalHours = 0;
@@ -493,7 +476,6 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
         totalEl.textContent = `Total hours: ${totalHours.toFixed(2)} h`;
         msgEl.textContent = `Loaded: ${rows.length} records. (Work-hours split applied)`;
 
-        // render dni
         for (const k of dayKeys){
           const box = document.createElement("div");
           box.className = "dayBox";
@@ -501,16 +483,16 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
           const day = dayMap.get(k);
           const header = document.createElement("div");
           header.className = "dayHeader";
-          header.innerHTML = `<div>${k}</div><div>${day.hours.toFixed(2)} h</div>`;
+          header.innerHTML = `<div>${dmyFromYmd(k)}</div><div>${day.hours.toFixed(2)} h</div>`;
           box.appendChild(header);
 
-          // sort tasks w dniu po task name (stabilnie) / ewentualnie po start
           day.items.sort((a,b) => a.start - b.start);
 
           for (const it of day.items){
             const item = document.createElement("div");
             item.className = "item" + (it.isLate ? " late" : "");
             const createdAtTxt = it.createdAt ? fmtDateTime(it.createdAt) : "?";
+
             item.innerHTML = `
               <div class="titleRow">
                 <div><strong>${it.task}</strong></div>
@@ -531,60 +513,58 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
       }
     });
 
+    // SHOW/HIDE DETAILS (ALL)
     detailsBtn.addEventListener("click", () => {
-  if (lastMode !== "all") return;
+      if (lastMode !== "all") return;
 
-  allDetailsVisible = !allDetailsVisible;
-  detailsBtn.textContent = allDetailsVisible ? "Hide details" : "Show details";
+      allDetailsVisible = !allDetailsVisible;
+      detailsBtn.textContent = allDetailsVisible ? "Hide details" : "Show details";
 
-  // usuń poprzednie detale
-  const existing = document.getElementById("allDetailsBox");
-  if (existing) existing.remove();
+      const existing = document.getElementById("allDetailsBox");
+      if (existing) existing.remove();
+      if (!allDetailsVisible) return;
 
-  if (!allDetailsVisible) return;
+      const box = document.createElement("div");
+      box.id = "allDetailsBox";
+      box.className = "detailsBox";
 
-  const box = document.createElement("div");
-  box.id = "allDetailsBox";
-  box.className = "detailsBox";
+      let currentTech = null;
 
-  let currentTech = null;
+      for (const r of lastAllDetailRows){
+        if (r.technician !== currentTech){
+          currentTech = r.technician;
+          const h = document.createElement("div");
+          h.className = "techHeader";
+          h.textContent = currentTech;
+          box.appendChild(h);
+        }
 
-  for (const r of lastAllDetailRows){
-    if (r.technician !== currentTech){
-      currentTech = r.technician;
-      const h = document.createElement("div");
-      h.className = "techHeader";
-      h.textContent = currentTech;
-      box.appendChild(h);
-    }
+        const row = document.createElement("div");
+        row.className = "tableRow" + (r.isLate ? " late" : "");
+        const createdAtTxt = r.createdAt ? fmtDateTime(r.createdAt) : "?";
 
-    const row = document.createElement("div");
-    row.className = "tableRow" + (r.isLate ? " late" : "");
-    const createdAtTxt = r.createdAt ? fmtDateTime(r.createdAt) : "?";
+        row.innerHTML = `
+          <div class="mono"><strong>${dmyFromYmd(r.dateKey)}</strong><br/>
+            <span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span>
+          </div>
+          <div>
+            <div><strong>${r.task}</strong></div>
+            <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
+          </div>
+          <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
+        `;
+        box.appendChild(row);
+      }
 
-    row.innerHTML = `
-      <div class="mono"><strong>${r.dateKey}</strong><br/><span class="small">${fmtDateTime(r.start)} → ${fmtDateTime(r.end)}</span></div>
-      <div>
-        <div><strong>${r.task}</strong></div>
-        <div class="small">Created by: <strong>${r.createdBy}</strong> — created at: ${createdAtTxt}</div>
-      </div>
-      <div style="text-align:right;font-weight:900" class="mono">${r.hours.toFixed(2)} h</div>
-    `;
+      daysEl.appendChild(box);
+    });
 
-    box.appendChild(row);
-  }
-
-  // wstaw pod summary
-  daysEl.appendChild(box);
-});
-
-
-    // ---------- CSV ----------
+    // CSV / PRINT zostawiam bez zmian funkcjonalnych
     csvBtn.addEventListener("click", () => {
       if (!lastFrom || !lastTo) return;
 
       if (lastMode === "all"){
-        const header = ["Technician","Total hours (08-16)","From","To"];
+        const header = ["Technician","Total hours","From","To"];
         const lines = [header];
         for (const s of lastAllSummary){
           lines.push([s.tech, s.hours.toFixed(2), lastFrom.toISOString().slice(0,10), lastTo.toISOString().slice(0,10)]);
@@ -593,8 +573,7 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
         return;
       }
 
-      // single
-      const header = ["Technician","Assignment date","Task","Hours counted","Start","End","CreatedBy","CreatedAt","LateCreatedAfterAssignmentDate"];
+      const header = ["Technician","Assignment date","Task","Hours counted","Start","End","CreatedBy","CreatedAt","Late"];
       const lines = [header];
 
       const tech = (lastTech === "__ALL__") ? "" : lastTech;
@@ -606,14 +585,9 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
 
         const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
         const createdBy = b.createdBy || "?";
-
-        let isLate = false;
-        if (createdAt){
-          isLate = startOfDay(createdAt) > startOfDay(s);
-        }
+        const isLate = createdAt ? (startOfDay(createdAt) > startOfDay(s)) : false;
 
         const parts = splitWorkHours(s, e);
-
         for (const p of parts){
           lines.push([
             tech,
@@ -632,7 +606,6 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
       downloadCSV(`technician_${tech}_${lastFrom.toISOString().slice(0,10)}_${lastTo.toISOString().slice(0,10)}.csv`, lines);
     });
 
-    // ---------- PRINT ----------
     printBtn.addEventListener("click", () => {
       const fromS = lastFrom ? lastFrom.toISOString().slice(0,10) : "";
       const toS = lastTo ? lastTo.toISOString().slice(0,10) : "";
@@ -659,19 +632,18 @@ const dayUsed = new Map(); // dateKey -> already counted hours (cap 8/day)
           <html><head><title>All technicians report</title>${style}</head>
           <body>
             <h1>All technicians report</h1>
-            <div class="muted">Range: ${fromS} → ${toS} (work hours 08:00–16:00)</div>
+            <div class="muted">Range: ${fromS} → ${toS}</div>
             ${rows}
           </body></html>
         `);
         return;
       }
 
-      // single print – bierzemy gotowy HTML z wyników
       openPrint(`
         <html><head><title>Technician report</title>${style}</head>
         <body>
           <h1>Technician report: ${lastTech}</h1>
-          <div class="muted">Range: ${fromS} → ${toS} (work hours 08:00–16:00)</div>
+          <div class="muted">Range: ${fromS} → ${toS}</div>
           <div><strong>${totalEl.textContent}</strong></div>
           ${daysEl.innerHTML}
         </body></html>
