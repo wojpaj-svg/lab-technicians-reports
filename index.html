@@ -157,36 +157,29 @@
     function maxDate(a,b){ return a > b ? a : b; }
 
 // Liczy realne godziny, rozbija na dni i tnie do MAX 8h/dzień (bez stałych godzin start/stop)
+// Rozbija booking na części dzienne (REALNE godziny w danym dniu) – BEZ limitu 8h
 function splitWorkHours(start, end){
-  const MAX_HOURS_PER_DAY = 8;
   const out = []; // [{dateKey, hours}]
   if (!(start instanceof Date) || !(end instanceof Date) || end <= start) return out;
 
-  // helpery lokalne
-  const pad2 = (n) => String(n).padStart(2,"0");
-  const ymd = (d) => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
-  const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
   const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
-  const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
-  const minDate = (a,b) => a < b ? a : b;
-  const maxDate = (a,b) => a > b ? a : b;
+  const endDay = startOfDay(end);
 
   let d = startOfDay(start);
-  const lastDay = startOfDay(end);
 
-  while (d <= lastDay){
+  while (d <= endDay){
     const segStart = maxDate(start, startOfDay(d));
     const segEnd = minDate(end, endOfDay(d));
 
     if (segEnd > segStart){
-      let hours = (segEnd - segStart) / (1000*60*60);
-      if (hours > MAX_HOURS_PER_DAY) hours = MAX_HOURS_PER_DAY; // sztywna zasada
+      const hours = (segEnd - segStart) / (1000*60*60);
       out.push({ dateKey: ymd(d), hours });
     }
     d = addDays(d, 1);
   }
   return out;
 }
+
 
     function fmtDateTime(d){
       return d.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
