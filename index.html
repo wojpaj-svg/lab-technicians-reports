@@ -135,11 +135,9 @@
     const printBtn = document.getElementById("print");
 
     // domyślnie: bieżący miesiąc
-    const now = new Date();
-    const first = new Date(now.getFullYear(), now.getMonth(), 1);
-    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    fromEl.value = first.toISOString().slice(0,10);
-    toEl.value = last.toISOString().slice(0,10);
+   
+    fromEl.value = "";
+    toEl.value = "";
 
     // ---------- helpers ----------
     function pad2(n){ return String(n).padStart(2,"0"); }
