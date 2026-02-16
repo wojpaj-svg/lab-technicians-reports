@@ -121,11 +121,16 @@
       </div>
     </div>
 
-    <div class="toolbar">
-      <button class="btn2" id="csv" disabled>Export CSV</button>
-      <button class="btn2" id="details" disabled>Show details</button>
-      <button class="btn2" id="print" disabled>Print</button>
-    </div>
+   <div class="toolbar">
+  <button class="btn2" id="csv" disabled>Export CSV</button>
+  <button class="btn2" id="details" disabled>Show details</button>
+  <button class="btn2" id="print" disabled>Print</button>
+
+  <!-- NEW -->
+  <button class="btn2" id="loginBtn" style="display:none;">Log in</button>
+  <button class="btn2" id="logoutBtn" style="display:none;">Logout</button>
+</div>
+
 
     <div class="muted" id="msg">Ready.</div>
 
@@ -138,7 +143,19 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import {
+   import {
+  getFirestore,
+  collection,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  Timestamp,
+  doc,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+import {
   getAuth,
   setPersistence,
   browserLocalPersistence,
@@ -148,7 +165,8 @@
   signOut
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-    import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    
 
     const firebaseConfig = {
       apiKey: "AIzaSyBz9WjF4aUhrCujzpzn4DHGX1MW--sV7iQ",
@@ -194,6 +212,38 @@ msgEl.addEventListener("dblclick", async () => {
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
     const detailsBtn = document.getElementById("details");
+    const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+
+// twardy allowlist (UID)
+const ALLOW_UIDS = new Set([
+  "xdKwnYR9PZYn5Ry3p27M4RXRFEn2", // Wojciech
+  "mfn78imjAbO9LsnCqItifD5QFNb2"  // Anna
+]);
+
+    const ALLOW_EMAILS = new Set([
+  "wojciech.pajerski@innorenew.eu",
+  "anna.sandak@innorenew.eu" // wpisz dokładnie
+]);
+
+
+async function isAllowedUser(user){
+  if (!user?.uid) return false;
+  if (!ALLOW_UIDS.has(user.uid)) return false;
+
+  // dodatkowo: sprawdź role w /users/{uid} (żeby nie dało się wejść "przypadkiem")
+  try{
+    const snap = await getDoc(doc(db, "users", user.uid));
+    if (!snap.exists()) return false;
+    const role = snap.data()?.role;
+    return role === "admin" || role === "researcher";
+  } catch(e){
+    console.error("profile read failed", e);
+    return false;
+  }
+}
+
+    
 
     // -------------------------
 // Login modal (email+pass) + gating
@@ -229,11 +279,12 @@ function ensureLoginModal(){
           <input id="loginPass" type="password" style="width:100%; padding:10px; border:1px solid #d5dde8; border-radius:10px;" placeholder="••••••••" />
         </div>
 
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px;">
-          <button id="btnLogin" style="border:none; border-radius:999px; padding:8px 14px; background:#0ea5e9; color:#fff; cursor:pointer; font-weight:700;">Sign in</button>
-          <button id="btnForgot" style="border:none; border-radius:999px; padding:8px 14px; background:#e5e7eb; cursor:pointer;">Forgot password</button>
-          <div id="loginMsg" style="font-size:12px; color:#dc2626;"></div>
-        </div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px;">
+  <button id="btnLogin" style="border:none; border-radius:999px; padding:8px 14px; background:#0ea5e9; color:#fff; cursor:pointer; font-weight:700;">Sign in</button>
+  <button id="btnForgot" style="border:none; border-radius:999px; padding:8px 14px; background:#e5e7eb; cursor:pointer;">Forgot password</button>
+  <div id="loginMsg" style="font-size:12px; color:#dc2626;"></div>
+</div>
+
 
         <div style="font-size:11px; color:#6b7280; margin-top:4px; line-height:1.35;">
           Use your institutional email. If you have a temporary password, sign in once and then use <b>Forgot password</b> to set your own.
@@ -259,6 +310,14 @@ function ensureLoginModal(){
     const pass = passEl.value || "";
     localStorage.setItem("reportLastEmail", email);
 
+      const emailNorm = email.toLowerCase();
+  if (!ALLOW_EMAILS.has(emailNorm)) {
+    msg.style.color = "#dc2626";
+    msg.textContent = "Access denied.";
+    return;
+  }
+
+
     if (!email || !pass){
       msg.textContent = "Please enter email and password.";
       return;
@@ -272,46 +331,76 @@ function ensureLoginModal(){
     }
   });
 
-  modal.querySelector("#btnForgot").addEventListener("click", async () => {
-    msg.textContent = "";
-    const email = (emailEl.value || "").trim();
-    localStorage.setItem("reportLastEmail", email);
+modal.querySelector("#btnForgot").addEventListener("click", async () => {
+  msg.textContent = "";
+  const email = (emailEl.value || "").trim();
+  localStorage.setItem("reportLastEmail", email);
 
-    if (!email){
-      msg.textContent = "Type your email first (then click Forgot password).";
-      return;
-    }
-    try{
-      await sendPasswordResetEmail(auth, email);
-      msg.style.color = "#16a34a";
-      msg.textContent = "Password reset email sent.";
-    } catch(e){
-      console.error(e);
-      msg.style.color = "#dc2626";
-      msg.textContent = "Could not send reset email (check address).";
-    }
-  });
+  const emailNorm = email.toLowerCase();
+  if (!ALLOW_EMAILS.has(emailNorm)) {
+    msg.style.color = "#dc2626";
+    msg.textContent = "Access denied.";
+    return;
+  }
 
-  modal.querySelector("#btnCloseLogin").addEventListener("click", async () => {
-    // jak ktoś zamknie bez logowania – zostaje bez uprawnień i Generate będzie zablokowane
-    modal.style.display = "none";
-  });
+  if (!email){
+    msg.style.color = "#dc2626";
+    msg.textContent = "Type your email first (then click Forgot password).";
+    return;
+  }
+
+  try{
+    await sendPasswordResetEmail(auth, email);
+    msg.style.color = "#16a34a";
+    msg.textContent = "Password reset email sent.";
+  } catch(e){
+    console.error(e);
+    msg.style.color = "#dc2626";
+    msg.textContent = "Could not send reset email (check address).";
+  }
+});
+
+  
+
+modal.querySelector("#btnCloseLogin").addEventListener("click", () => {
+  modal.style.display = "none";
+  loginBtn.style.display = "inline-flex"; // żeby zawsze był powrót
+  msgEl.textContent = "Login required. Click 'Log in' to continue.";
+});
+
 }
 
 function showLogin(){
   ensureLoginModal();
-  document.getElementById("loginModal").style.display = "flex";
+  const m = document.getElementById("loginModal");
+  if (m) m.style.display = "flex";
+
+  // UI
+  loginBtn.style.display = "inline-flex";
+  logoutBtn.style.display = "none";
 }
 
 function hideLogin(){
   const m = document.getElementById("loginModal");
   if (m) m.style.display = "none";
+
+  // UI
+  loginBtn.style.display = "none";
+  logoutBtn.style.display = "inline-flex";
 }
+
+loginBtn.addEventListener("click", () => {
+  showLogin();
+});
+
+logoutBtn.addEventListener("click", async () => {
+  try { await signOut(auth); } catch(e){ console.error(e); }
+});
 
 // Domyślnie blokuj generowanie zanim zaloguje
 genBtn.disabled = true;
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   currentUser = user || null;
 
   if (!user){
@@ -321,16 +410,17 @@ onAuthStateChanged(auth, (user) => {
     return;
   }
 
-  // ✅ allowlist (Anna + You)
-  const ok =
-    user.uid === "mfn78imjAbO9LsnCqItifD5QFNb2" ||
-    user.uid === "xdKwnYR9PZYn5Ry3p27M4RXRFEn2";
-
+  // ✅ twardy allowlist + rola z /users
+  const ok = await isAllowedUser(user);
   if (!ok){
+    msgEl.textContent = "ACCESS DENIED: you do not have permission to use this report tool.";
     genBtn.disabled = true;
-    msgEl.textContent = "Access denied (report is restricted).";
-    // opcjonalnie: wyloguj od razu
-    signOut(auth).catch(console.error);
+    csvBtn.disabled = true;
+    printBtn.disabled = true;
+    detailsBtn.disabled = true;
+
+    // wyloguj i pokaż login
+    try { await signOut(auth); } catch(e){ console.error(e); }
     showLogin();
     return;
   }
@@ -339,6 +429,7 @@ onAuthStateChanged(auth, (user) => {
   genBtn.disabled = false;
   msgEl.textContent = `Signed in as ${user.email || "user"}. Ready.`;
 });
+
 
 
 
