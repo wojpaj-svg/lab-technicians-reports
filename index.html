@@ -138,7 +138,16 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+    import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signOut
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+
     import { getFirestore, collection, query, where, orderBy, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -156,7 +165,14 @@
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    signInAnonymously(auth).catch(console.error);
+
+// persistence (żeby nie wylogowywało po odświeżeniu)
+try {
+  await setPersistence(auth, browserLocalPersistence);
+} catch (e) {
+  console.error("setPersistence failed:", e);
+}
+
 
     const db = getFirestore(app);
     const bookingsCol = collection(db, "bookings");
@@ -166,12 +182,165 @@
     const toEl = document.getElementById("to");
     const genBtn = document.getElementById("gen");
     const msgEl = document.getElementById("msg");
+// optional logout on double click msg
+msgEl.addEventListener("dblclick", async () => {
+  try { await signOut(auth); } catch(e){ console.error(e); }
+});
+
+    
     const outEl = document.getElementById("out");
     const totalEl = document.getElementById("total");
     const daysEl = document.getElementById("days");
     const csvBtn = document.getElementById("csv");
     const printBtn = document.getElementById("print");
     const detailsBtn = document.getElementById("details");
+
+    // -------------------------
+// Login modal (email+pass) + gating
+// -------------------------
+let currentUser = null;
+
+function ensureLoginModal(){
+  if (document.getElementById("loginModal")) return;
+
+  const modal = document.createElement("div");
+  modal.id = "loginModal";
+  modal.style.position = "fixed";
+  modal.style.inset = "0";
+  modal.style.background = "rgba(15,23,42,0.45)";
+  modal.style.display = "flex";
+  modal.style.alignItems = "center";
+  modal.style.justifyContent = "center";
+  modal.style.zIndex = "9999";
+  modal.innerHTML = `
+    <div style="width:min(520px,92vw); background:#fff; border-radius:16px; padding:18px; box-shadow:0 15px 35px rgba(0,0,0,0.18);">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+        <div style="font-weight:800;">Technician report — sign in</div>
+        <button id="btnCloseLogin" style="border:0; background:#e5e7eb; border-radius:999px; padding:6px 10px; cursor:pointer;">Close</button>
+      </div>
+
+      <div style="display:grid; gap:10px;">
+        <div>
+          <label style="font-size:11px; color:#6b7280; display:block; margin-bottom:4px;">Email</label>
+          <input id="loginEmail" type="email" style="width:100%; padding:10px; border:1px solid #d5dde8; border-radius:10px;" placeholder="name@innorenew.eu" />
+        </div>
+        <div>
+          <label style="font-size:11px; color:#6b7280; display:block; margin-bottom:4px;">Password</label>
+          <input id="loginPass" type="password" style="width:100%; padding:10px; border:1px solid #d5dde8; border-radius:10px;" placeholder="••••••••" />
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px;">
+          <button id="btnLogin" style="border:none; border-radius:999px; padding:8px 14px; background:#0ea5e9; color:#fff; cursor:pointer; font-weight:700;">Sign in</button>
+          <button id="btnForgot" style="border:none; border-radius:999px; padding:8px 14px; background:#e5e7eb; cursor:pointer;">Forgot password</button>
+          <div id="loginMsg" style="font-size:12px; color:#dc2626;"></div>
+        </div>
+
+        <div style="font-size:11px; color:#6b7280; margin-top:4px; line-height:1.35;">
+          Use your institutional email. If you have a temporary password, sign in once and then use <b>Forgot password</b> to set your own.
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const msg = modal.querySelector("#loginMsg");
+  const emailEl = modal.querySelector("#loginEmail");
+  const passEl = modal.querySelector("#loginPass");
+
+  emailEl.setAttribute("autocomplete", "email");
+  passEl.setAttribute("autocomplete", "current-password");
+
+  const lastEmail = localStorage.getItem("reportLastEmail");
+  if (lastEmail && !emailEl.value) emailEl.value = lastEmail;
+
+  modal.querySelector("#btnLogin").addEventListener("click", async () => {
+    msg.textContent = "";
+    const email = (emailEl.value || "").trim();
+    const pass = passEl.value || "";
+    localStorage.setItem("reportLastEmail", email);
+
+    if (!email || !pass){
+      msg.textContent = "Please enter email and password.";
+      return;
+    }
+    try{
+      await signInWithEmailAndPassword(auth, email, pass);
+      // onAuthStateChanged zamknie modal
+    } catch(e){
+      console.error(e);
+      msg.textContent = "Login failed. Check email/password.";
+    }
+  });
+
+  modal.querySelector("#btnForgot").addEventListener("click", async () => {
+    msg.textContent = "";
+    const email = (emailEl.value || "").trim();
+    localStorage.setItem("reportLastEmail", email);
+
+    if (!email){
+      msg.textContent = "Type your email first (then click Forgot password).";
+      return;
+    }
+    try{
+      await sendPasswordResetEmail(auth, email);
+      msg.style.color = "#16a34a";
+      msg.textContent = "Password reset email sent.";
+    } catch(e){
+      console.error(e);
+      msg.style.color = "#dc2626";
+      msg.textContent = "Could not send reset email (check address).";
+    }
+  });
+
+  modal.querySelector("#btnCloseLogin").addEventListener("click", async () => {
+    // jak ktoś zamknie bez logowania – zostaje bez uprawnień i Generate będzie zablokowane
+    modal.style.display = "none";
+  });
+}
+
+function showLogin(){
+  ensureLoginModal();
+  document.getElementById("loginModal").style.display = "flex";
+}
+
+function hideLogin(){
+  const m = document.getElementById("loginModal");
+  if (m) m.style.display = "none";
+}
+
+// Domyślnie blokuj generowanie zanim zaloguje
+genBtn.disabled = true;
+
+onAuthStateChanged(auth, (user) => {
+  currentUser = user || null;
+
+  if (!user){
+    genBtn.disabled = true;
+    msgEl.textContent = "Please sign in to generate reports.";
+    showLogin();
+    return;
+  }
+
+  // ✅ allowlist (Anna + You)
+  const ok =
+    user.uid === "mfn78imjAbO9LsnCqItifD5QFNb2" ||
+    user.uid === "xdKwnYR9PZYn5Ry3p27M4RXRFEn2";
+
+  if (!ok){
+    genBtn.disabled = true;
+    msgEl.textContent = "Access denied (report is restricted).";
+    // opcjonalnie: wyloguj od razu
+    signOut(auth).catch(console.error);
+    showLogin();
+    return;
+  }
+
+  hideLogin();
+  genBtn.disabled = false;
+  msgEl.textContent = `Signed in as ${user.email || "user"}. Ready.`;
+});
+
+
 
     let allDetailsVisible = false;
     let lastAllDetailRows = [];
@@ -211,6 +380,11 @@
       const mi = pad2(d.getMinutes());
       return `${dd}/${mm}/${yyyy}, ${hh}:${mi}`;
     }
+
+    function getCreatedByLabel(b){
+  return b?.createdByDisplayName || b?.createdByEmail || b?.createdBy || "?";
+}
+
 
     // Rozbija booking na części dzienne (REALNE godziny w danym dniu) – BEZ limitu 8h
     function splitWorkHours(start, end){
@@ -299,24 +473,31 @@
       try {
         let q;
         if (tech === "__ALL__"){
-          q = query(
-            bookingsCol,
-            where("start", ">=", Timestamp.fromDate(from)),
-            where("start", "<=", Timestamp.fromDate(to)),
-            orderBy("start")
-          );
+         q = query(
+  bookingsCol,
+  where("start", ">=", Timestamp.fromDate(from)),
+  where("start", "<=", Timestamp.fromDate(to))
+);
+
         } else {
           q = query(
-            bookingsCol,
-            where("technician", "==", tech),
-            where("start", ">=", Timestamp.fromDate(from)),
-            where("start", "<=", Timestamp.fromDate(to)),
-            orderBy("start")
-          );
+  bookingsCol,
+  where("technician", "==", tech),
+  where("start", ">=", Timestamp.fromDate(from)),
+  where("start", "<=", Timestamp.fromDate(to))
+);
+
         }
 
         const snap = await getDocs(q);
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        rows.sort((a,b) => {
+  const as = a.start?.toDate?.() ? a.start.toDate() : new Date(0);
+  const bs = b.start?.toDate?.() ? b.start.toDate() : new Date(0);
+  return as - bs;
+});
+
         lastRows = rows;
 
         outEl.style.display = "block";
@@ -389,7 +570,8 @@
             if (!s || !e) continue;
 
             const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
-            const createdBy = b.createdBy || "?";
+            const createdBy = getCreatedByLabel(b);
+
 
             let isLate = false;
             if (createdAt){
@@ -445,7 +627,8 @@
           if (!s || !e) continue;
 
           const createdAt = b.createdAt?.toDate?.() ? b.createdAt.toDate() : null;
-          const createdBy = b.createdBy || "?";
+        const createdBy = getCreatedByLabel(b);
+
 
           let isLate = false;
           if (createdAt){
@@ -527,10 +710,11 @@
           daysEl.appendChild(box);
         }
 
-      } catch (err){
-        console.error(err);
-        msgEl.textContent = `ERROR: ${err?.message || err}`;
-      }
+     } catch (err){
+  console.error("REPORT ERROR:", err, err?.code);
+  msgEl.textContent = `ERROR: ${err?.message || err?.code || err}`;
+}
+
     });
 
     // SHOW/HIDE DETAILS (ALL)
